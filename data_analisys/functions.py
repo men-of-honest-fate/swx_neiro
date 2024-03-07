@@ -29,8 +29,26 @@ def preprocessing(file, sep, columns):
 
 def get_events(table: pd.DataFrame, column: str, value: float = 1.5):
     events = [list(g) for k, g in groupby(table[column].tolist(), key=lambda x: x > value) if k]
+    time = table["Date/time"].tolist()
+    new_time = []
+    tmp = []
+    for event in events:
+        for index in [event.index(value) for value in event]:
+            tmp.append(time[index])
+        new_time.append(tmp)
+        tmp = []
 
-    return events
+    return (events, new_time)
+
+
+def filter_events(events: tuple, indexes: list | None = None):
+    if indexes:
+        new_tuple = ([events[0][index] for index in indexes], [events[1][index] for index in indexes])
+    else:
+        new_tuple = ([event for event in events[0] if len(event) > 10], [events for event in events[1] if len(event) > 10])
+
+    return new_tuple
+
 
 
 def create_graph(x_axis: list, y_axis: list):
