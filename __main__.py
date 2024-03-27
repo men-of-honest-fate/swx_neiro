@@ -1,9 +1,11 @@
-# from data_analisys import functions as f
+from data_analisys import functions as f
 from settings import Settings
 from ai_model import model
 
 if __name__ == "__main__":
-    model.neiro_fit()
+    f.table_parce(file="dump.txt", sep="\t")
+
+    # model.neiro_fit()
     # columns = ["Date/time", "P >5 MeV", "P >10 MeV"]
 
     # settings = Settings().get_settings()
