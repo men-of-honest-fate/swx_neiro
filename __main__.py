@@ -3,7 +3,7 @@ from settings import Settings
 from ai_model import model
 
 if __name__ == "__main__":
-    f.table_parce(file="dump.txt", sep="\t")
+    model.neiro_fit()
 
     # model.neiro_fit()
     # columns = ["Date/time", "P >5 MeV", "P >10 MeV"]

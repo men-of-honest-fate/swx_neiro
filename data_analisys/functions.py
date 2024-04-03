@@ -1,5 +1,6 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
 import re
 from datetime import datetime
 from itertools import groupby
@@ -38,17 +39,70 @@ def table_parce(file, sep):
         df = df.drop(df[df['Source max 1'] == 'DSF'].index)
         df = df.drop(columns=['Source max 1', 'Confidence of The Source Association'])
         df = df.drop(df[df['Importance (Xray/Opt)'] == ''].index)
+        df = df.drop(df[df['Importance (Xray/Opt)'] == '26o'].index)
         df = df.drop(df[df['Localization'] == ''].index)
+        df = df.dropna()
 
-        # df.insert(1, 'Delta T', value=None)
+        loc_x = []
+        loc_y = []
+        delta_values = []
         for index, row in df.iterrows():
+            # Time delta calculation
             row['Start (Day/UT)'] = row['Start (Day/UT)'][-3:-1]
             if "d" in row['Tmax1 (UT)']:
-                row['Tmax1 (UT)'] = row['Start (Day/UT)'][-3:]
+                try:
+                    row['Tmax1 (UT)'] = int(row['Tmax1 (UT)'][-3:-1])
+                except ValueError:
+                    row['Tmax1 (UT)'] = int(row['Tmax1 (UT)'][-2:-1])      
+                if row['Tmax1 (UT)'] - int(row['Start (Day/UT)']) < 0:
+                    delta_values.append(24 + int(row['Tmax1 (UT)']) - int(row['Start (Day/UT)']))
+                else:
+                    delta_values.append(int(row['Tmax1 (UT)']) - int(row['Start (Day/UT)']))                    
             else:
-                row['Tmax1 (UT)'] = row['Start (Day/UT)'][:-1]
-            print(row['Tmax1 (UT)'])
-        print(df)
+                row['Tmax1 (UT)'] = int(row['Tmax1 (UT)'][:-1])
+                delta_values.append(int(row['Tmax1 (UT)']) - int(row['Start (Day/UT)']))
+            
+            # Importance of solar Flare calculation
+            row['Importance (Xray/Opt)'] = row['Importance (Xray/Opt)'].split("/")[0].split(",")[0]
+            try:
+                ind = row['Importance (Xray/Opt)'][0]
+                value = float(row['Importance (Xray/Opt)'][1:])
+            except ValueError:
+                ind = row['Importance (Xray/Opt)'][1:]
+                value = float(row['Importance (Xray/Opt)'][0])
+            if ind == 'B':
+                row['Importance (Xray/Opt)'] = np.float64(value*(10**-7))
+            elif ind == 'C':
+                row['Importance (Xray/Opt)'] = np.float64(value*(10**-6))
+            elif ind == 'M':
+                row['Importance (Xray/Opt)'] = np.float64(value*(10**-5))
+            elif ind == 'X':
+                row['Importance (Xray/Opt)'] = np.float64(value*(10**-4))
+            elif ind == 'С':
+                row['Importance (Xray/Opt)'] = np.float64(value*(10**-6))
+            elif ind == 'М':
+                row['Importance (Xray/Opt)'] = np.float64(value*(10**-5))
+
+            # Localization of solar flare calculation
+
+            localization_x = row['Localization'][3:6]
+            if localization_x[0] == "E":
+                loc_x.append(float(localization_x[1:]))
+            elif localization_x[0] == "W":
+                loc_x.append(-float(localization_x[1:]))
+
+            localization_y = row['Localization'][0:3]
+            if localization_y[0] == "N":
+                loc_y.append(float(localization_y[1:]))
+            elif localization_y[0] == "S":
+                loc_y.append(-float(localization_y[1:]))
+            
+        df.insert(6, 'Localization_x', value=loc_x)
+        df.insert(7, 'Localization_y', value=loc_y)
+        df.insert(0, 'Tmax delta', value=delta_values) 
+        df = df.drop(columns=['Start (Day/UT)', 'Tmax1 (UT)', 'Localization'])  
+
+        return df
 
 
 def get_events(table: pd.DataFrame, column: str, value: float = 1.5):
