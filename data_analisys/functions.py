@@ -16,7 +16,7 @@ def preprocessing(file, sep, columns):
             col[i], datetime.strptime(col[i][:-7], "%Y-%m-%d %H:%M:%S")
         )
 
-    for j in range(1, 3):
+    for j in range(1, 2):
         col = data[data.keys()[j]].tolist()
         for i in range(len(col)):
             check = re.match(r" *[\d.]+ *", col[i])
