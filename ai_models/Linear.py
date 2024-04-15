@@ -9,7 +9,7 @@ def fit(X_train, y_train, X_test, y_test):
     bootstrap_y = []
 
     for _ in range(n_bootstraps):
-        sample_X, sample_y = resample(X_train + X_test, y_train + y_test)
+        sample_X, sample_y = resample(X_train, y_train)
         bootstrap_X.append(sample_X)
         bootstrap_y.append(sample_y)
 
@@ -19,4 +19,4 @@ def fit(X_train, y_train, X_test, y_test):
         model.fit(data, bootstrap_y[i])
         accuracy_score = r2_score(bootstrap_y[i], model.predict(data))
 
-    return model, accuracy_score*100
+    return model, accuracy_score

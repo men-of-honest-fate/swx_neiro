@@ -11,8 +11,7 @@ def fit(X_train, y_train, X_test, y_test):
             n_estimators=200, max_features="sqrt", random_state=42
         )
         model.fit(X_train, y_train)
-        predictions = model.predict(X_test) + model.predict(X_train)
         accuracy_score = r2_score(y_true=y_test, y_pred=model.predict(X_test))
         accuracy_array.append(accuracy_score)
 
-    return model, accuracy_array, predictions
+    return model, accuracy_array

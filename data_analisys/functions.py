@@ -38,7 +38,7 @@ def table_parce(file, sep):
             [obj.replace("\n", "") for obj in row.split(sep)] for row in f.readlines()
         ]
         df = pd.DataFrame(columns=columns, data=data)
-        df = df.drop(columns=["T0 CME (Day/UT)", "CME (data)", "AR", "GLE"])
+        df = df.drop(columns=["T0 CME (Day/UT)", "CME (data)", "AR", "GLE", "Оі1", "Eqmmax1 (MeV)"])
         df = df.drop(df[df["Source max 1"] == "Unknown"].index)
         df = df.drop(df[df["Source max 1"] == ""].index)
         df = df.drop(df[df["Source max 1"] == "DSF"].index)
@@ -47,7 +47,6 @@ def table_parce(file, sep):
         df = df.drop(df[df["Importance (Xray/Opt)"] == "26o"].index)
         df = df.drop(df[df["Localization"] == ""].index)
         df = df.dropna()
-
         loc_x = []
         loc_y = []
         delta_values = []

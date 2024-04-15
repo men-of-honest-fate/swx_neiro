@@ -1,3 +1,6 @@
 torch
 scipy
 matplotlib
+pandas
+scikit-learn
+openpyxl

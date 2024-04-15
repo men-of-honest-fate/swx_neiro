@@ -1,9 +1,10 @@
 from data_analisys import functions as f
-from ai_models import RandomForest, GradientBoosting
+from ai_models import RandomForest, GradientBoosting, Linear
 from sklearn.model_selection import train_test_split
 import numpy as np
 import matplotlib.pyplot as plt
 import warnings
+import io
 
 if __name__ == "__main__":
     warnings.filterwarnings("ignore")
@@ -15,17 +16,19 @@ if __name__ == "__main__":
     ]
     table_out1 = [[row["Jmax1 (pfu)"]] for index, row in table.iterrows()]
     X_train, X_test, y_train, y_test = train_test_split(
-        table_in, table_out1, test_size=0.25, random_state=16
+        table_in, table_out1, test_size=0.1, random_state=16
     )
     X_train = np.array(X_train, dtype=np.float64)
     X_test = np.array(X_test, dtype=np.float64)
     y_train = np.array(y_train, dtype=np.float64)
-    y_test = np.array(y_train, dtype=np.float64)
-
-    forest_model, Forest_accuracy, forest_pred = RandomForest.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
-    boosting_model, Boosting_accuracy, boosting_pred = GradientBoosting.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
-    table.insert(8, "Forest_Jpred", forest_pred)
-    table.insert(9, "Boosting_Jpred", boosting_pred)
+    y_test = np.array(y_test, dtype=np.float64)
+    
+    forest_model, Forest_accuracy = RandomForest.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
+    boosting_model, Boosting_accuracy = GradientBoosting.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
+    linear_model, Linear_accuracy = Linear.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
+    table.insert(6, "Forest_Jpred", forest_model.predict(np.array(table_in, dtype=np.float64)))
+    table.insert(7, "Boosting_Jpred", boosting_model.predict(np.array(table_in, dtype=np.float64)))
+    table.insert(8, "Linear_Jpred", linear_model.predict(np.array(table_in, dtype=np.float64)))
     
     def create_graphs_J():
         ns = np.arange(1, 201, 1)
@@ -51,18 +54,21 @@ if __name__ == "__main__":
     table_out2 = [[row["Tmax delta"]] for index, row in table.iterrows()]
 
     X_train, X_test, y_train, y_test = train_test_split(
-        table_in, table_out2, test_size=0.25, random_state=16
+        table_in, table_out2, test_size=0.1, random_state=16
     )
     X_train = np.array(X_train, dtype=np.float64)
-    X_test = np.array(X_train, dtype=np.float64)
+    X_test = np.array(X_test, dtype=np.float64)
     y_train = np.array(y_train, dtype=np.float64)
-    y_test = np.array(y_train, dtype=np.float64)
+    y_test = np.array(y_test, dtype=np.float64)
 
-    forest_model, Forest_accuracy, forest_pred = RandomForest.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
-    boosting_model, Boosting_accuracy, boosting_pred = GradientBoosting.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
-    table.insert(10, "Forest_DTpred", forest_pred)
-    table.insert(11, "Boosting_DTpred", boosting_pred)
+    forest_model, Forest_accuracy = RandomForest.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
+    boosting_model, Boosting_accuracy = GradientBoosting.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
+    linear_model, Linear_accuracy = Linear.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
+    table.insert(9, "Forest_DTpred", forest_model.predict(np.array(table_in, dtype=np.float64)))
+    table.insert(10, "Boosting_DTpred", boosting_model.predict(np.array(table_in, dtype=np.float64)))
+    table.insert(11, "Linear_DTpred", linear_model.predict(np.array(table_in, dtype=np.float64)))
 
+    print(Forest_accuracy, Boosting_accuracy)
     def create_graphs_DT():
         ns = np.arange(1, 201, 1)
         plt.plot(ns, Forest_accuracy, ns, Boosting_accuracy, linewidth=2.0)
@@ -83,4 +89,5 @@ if __name__ == "__main__":
 
         plt.legend(['RandomForest_DT', 'GradientBoosting_DT'], loc=4)
         plt.show()
-    print(table)
+    
+    table.to_excel("dump.xlsx")
