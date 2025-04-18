@@ -29,6 +29,7 @@ if __name__ == "__main__":
     table.insert(6, "Forest_Jpred", forest_model.predict(np.array(table_in, dtype=np.float64)))
     table.insert(7, "Boosting_Jpred", boosting_model.predict(np.array(table_in, dtype=np.float64)))
     table.insert(8, "Linear_Jpred", linear_model.predict(np.array(table_in, dtype=np.float64)))
+    print(Forest_accuracy, Boosting_accuracy)
     
     def create_graphs_J():
         ns = np.arange(1, 201, 1)
