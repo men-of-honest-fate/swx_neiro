@@ -38,7 +38,7 @@ def table_parce(file, sep):
             [obj.replace("\n", "") for obj in row.split(sep)] for row in f.readlines()
         ]
         df = pd.DataFrame(columns=columns, data=data)
-        df = df.drop(columns=["T0 CME (Day/UT)", "CME (data)", "AR", "GLE", "Оі1", "Eqmmax1 (MeV)"])
+        df = df.drop(columns=["T0 CME (Day/UT)", "CME (data)", "AR", "GLE", "Eqmmax1 (MeV)"])
         df = df.drop(df[df["Source max 1"] == "Unknown"].index)
         df = df.drop(df[df["Source max 1"] == ""].index)
         df = df.drop(df[df["Source max 1"] == "DSF"].index)
@@ -111,7 +111,7 @@ def table_parce(file, sep):
         df.insert(7, "Localization_y", value=loc_y)
         df.insert(0, "Tmax delta", value=delta_values)
         df = df.drop(columns=["Start (Day/UT)", "Tmax1 (UT)", "Localization"])
-
+        df = filter_by_jmax(df, "Jmax1 (pfu)", 10)
         return df
 
 
@@ -147,6 +147,20 @@ def filter_events(events: tuple, indexes: list | None = None):
 
     return new_tuple
 
+def filter_by_jmax(df: pd.DataFrame, column: str, threshold: float = 10) -> pd.DataFrame:
+    """
+    Фильтрация строк по значению Jmax_parsed > threshold.
+    Пропуски и некорректные значения игнорируются.
+
+    :param df: исходный DataFrame с колонкой 'Jmax_parsed'
+    :param threshold: пороговое значение (по умолчанию 10)
+    :return: отфильтрованный DataFrame
+    """
+    # Приведение к числовому типу (на случай если тип не float)
+    jmax_numeric = pd.to_numeric(df[column], errors='coerce')
+    # Булев фильтр: только те строки, где Jmax_parsed > threshold
+    mask = jmax_numeric > threshold
+    return df[mask].copy()
 
 def create_graph(x_axis: list, y_axis: list):
     plt.plot(x_axis, y_axis)
