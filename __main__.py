@@ -1,7 +1,9 @@
 from data_analisys import functions as f
 from data.parce_data import df
-from ai_models import RandomForest, GradientBoosting, Linear
-from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import cross_val_score, KFold
 import numpy as np
 import matplotlib.pyplot as plt
 import warnings
@@ -11,51 +13,78 @@ import io
 if __name__ == "__main__":
     warnings.filterwarnings("ignore")
 
-    # table = f.table_parce(file="dump.txt", sep="\t")
-    # print(table.info())
-    # table_in = [
-    #     [row["Localization_x"], row["Localization_y"], row["Importance (Xray/Opt)"]]
-    #     for index, row in table.iterrows()
-    # ]
-    # table_out1 = [[row["Jmax1 (pfu)"]] for index, row in table.iterrows()]
-    # X_train, X_test, y_train, y_test = train_test_split(
-    #     table_in, table_out1, test_size=0.1, random_state=16
-    # )
+    new_table = df[["Event_date", "T_delta_flare", "Flare_power"]]
 
-    print(df.info())
-    X = df[["T_delta_flare", "Flare_power"]]
-    y = df[["Jmax_parsed"]]
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.1, random_state=42
-    )
+    X_parced = np.array(df[["T_delta_flare", "Flare_power"]], dtype=np.float64)
+    y_parced = np.array(df[["Jmax_parsed"]], dtype=np.float64)
+    y_log = np.log1p(y_parced)
 
-    X_train = np.array(X_train, dtype=np.float64)
-    X_test = np.array(X_test, dtype=np.float64)
-    y_train = np.array(y_train, dtype=np.float64)
-    y_test = np.array(y_test, dtype=np.float64)
-    
-    forest_model, Forest_accuracy = RandomForest.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
-    boosting_model, Boosting_accuracy = GradientBoosting.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
-    linear_model, Linear_accuracy = Linear.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
-    # table.insert(6, "Forest_Jpred", forest_model.predict(np.array(table_in, dtype=np.float64)))
-    # table.insert(7, "Boosting_Jpred", boosting_model.predict(np.array(table_in, dtype=np.float64)))
-    # table.insert(8, "Linear_Jpred", linear_model.predict(np.array(table_in, dtype=np.float64)))
-    print(Forest_accuracy, Boosting_accuracy)
-    
-    # table_out2 = [[row["Tmax delta"]] for index, row in table.iterrows()]
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    scaler_X_J = StandardScaler()
+    scaler_y_J = StandardScaler()
+    X = scaler_X_J.fit_transform(X_parced)
+    y = scaler_y_J.fit_transform(y_log.reshape(-1, 1))
 
-    # X = df[["T_delta_flare", "Flare_power"]]
-    # Y = df[["T_delta_SPE"]]
-    # X_train, X_test, y_train, y_test = train_test_split(
-    #     X, Y, test_size=0.1, random_state=42
-    # )
-    # X_train = np.array(X_train, dtype=np.float64)
-    # X_test = np.array(X_test, dtype=np.float64)
-    # y_train = np.array(y_train, dtype=np.float64)
-    # y_test = np.array(y_test, dtype=np.float64)
+    models_J = {
+        "Forest": RandomForestRegressor(random_state=42),
+        "Boosting": GradientBoostingRegressor(random_state=42),
+        "Linear": LinearRegression()
+    }
 
-    # forest_model, Forest_accuracy = RandomForest.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
-    # boosting_model, Boosting_accuracy = GradientBoosting.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
-    # linear_model, Linear_accuracy = Linear.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
+    for name, model in models_J.items():
+        model.fit(X, y)
+        pred_scaled = model.predict(X)
+        model_score = cross_val_score(model, X, y, cv=kf, scoring='r2')
+        print(f"{model.__class__.__name__} CV Accuracy: {np.mean(model_score):.2f}")
+        # Обратное преобразование предсказаний
+        pred = np.expm1(scaler_y_J.inverse_transform(pred_scaled.reshape(-1, 1))).ravel()
+        new_table[f"{name}_Jpred"] = pred
 
-    # print(Forest_accuracy, Boosting_accuracy)
+    new_table["True_J_values"] = y_parced
+    column_order = [
+        "Event_date", 
+        "T_delta_flare", 
+        "Flare_power", 
+        "True_J_values",
+        "Forest_Jpred", 
+        "Boosting_Jpred", 
+        "Linear_Jpred"
+    ]
+    new_table[column_order].to_excel("predictions_table_J.xlsx", index=False)
+
+    X_parced = np.array(df[["T_delta_flare", "Flare_power"]], dtype=np.float64)
+    y_parced = np.array(df[["T_delta_SPE"]], dtype=np.float64)
+    scaler_X_T = StandardScaler()
+    scaler_y_T = StandardScaler()
+    X = scaler_X_T.fit_transform(X_parced)
+    y = scaler_y_T.fit_transform(y_parced)
+
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+
+    models_T = {
+        "Forest": RandomForestRegressor(random_state=42),
+        "Boosting": GradientBoostingRegressor(random_state=42),
+        "Linear": LinearRegression()
+    }
+
+    for name, model in models_T.items():
+        model.fit(X, y)
+        pred_scaled = model.predict(X)
+        model_score = cross_val_score(model, X, y, cv=kf, scoring='r2')
+        print(f"{model.__class__.__name__} CV Accuracy: {np.mean(model_score):.2f}")
+        # Обратное преобразование предсказаний
+        pred = scaler_y_T.inverse_transform(pred_scaled.reshape(-1, 1)).ravel()
+        new_table[f"{name}_Delta_T_max"] = pred
+
+
+    new_table["True_Delta_T_max"] = y_parced
+    column_order = [
+        "Event_date", 
+        "T_delta_flare", 
+        "Flare_power", 
+        "True_Delta_T_max",
+        "Forest_Delta_T_max", 
+        "Boosting_Delta_T_max", 
+        "Linear_Delta_T_max"
+    ]
+    new_table[column_order].to_excel("predictions_table_T.xlsx", index=False)
