@@ -1,94 +1,111 @@
 from data_analisys import functions as f
-from ai_models import RandomForest, GradientBoosting, Linear
-from sklearn.model_selection import train_test_split
+from data.parce_data import df
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import cross_val_score, KFold, cross_val_predict
+from sklearn.metrics import mean_absolute_percentage_error, make_scorer, mean_absolute_error, root_mean_squared_error
 import numpy as np
 import matplotlib.pyplot as plt
 import warnings
 import io
 
+mape_scorer = make_scorer(
+    mean_absolute_percentage_error,
+    greater_is_better=False
+)
+
 if __name__ == "__main__":
     warnings.filterwarnings("ignore")
 
-    table = f.table_parce(file="dump.txt", sep="\t")
-    table_in = [
-        [row["Localization_x"], row["Localization_y"], row["Importance (Xray/Opt)"]]
-        for index, row in table.iterrows()
+    new_table = df[["Event_date", "T_delta_flare", "Flare_power"]]
+
+    X_parced = np.array(df[["T_delta_flare", "Flare_power"]], dtype=np.float64)
+    y_parced = np.array(df[["Jmax_parsed"]], dtype=np.float64)
+
+    y_log = np.log1p(y_parced)
+    scaler_X_J = StandardScaler()
+    scaler_y_J = StandardScaler()
+    X = scaler_X_J.fit_transform(X_parced)
+    y = scaler_y_J.fit_transform(y_log.reshape(-1, 1))
+
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+
+    models_J = {
+        "Forest": RandomForestRegressor(random_state=42),
+        "Boosting": GradientBoostingRegressor(random_state=42),
+        "Linear": LinearRegression()
+    }
+
+    print("\n" + "="*40)
+    print("Оценка моделей для Jmax_parsed")
+    print("="*40)
+
+    for name, model in models_J.items():
+        pred_scaled = cross_val_predict(model, X, y, cv=kf)
+        y_pred = np.expm1(scaler_y_J.inverse_transform(pred_scaled.reshape(-1, 1))).ravel()
+
+        if np.any(y_parced == 0):
+            print(f"Warning: zeros in y_true for {name}, MAPE may be invalid.")
+
+        accuracy = root_mean_squared_error(y_parced.ravel(), y_pred)
+
+        print(f"{model.__class__.__name__} CV Accuracy: {accuracy:.2f}")
+        new_table[f"{name}_Jpred"] = y_pred
+
+    new_table["True_J_values"] = y_parced
+    column_order = [
+        "Event_date", 
+        "T_delta_flare", 
+        "Flare_power", 
+        "True_J_values",
+        "Forest_Jpred", 
+        "Boosting_Jpred", 
+        "Linear_Jpred"
     ]
-    table_out1 = [[row["Jmax1 (pfu)"]] for index, row in table.iterrows()]
-    X_train, X_test, y_train, y_test = train_test_split(
-        table_in, table_out1, test_size=0.1, random_state=16
-    )
-    X_train = np.array(X_train, dtype=np.float64)
-    X_test = np.array(X_test, dtype=np.float64)
-    y_train = np.array(y_train, dtype=np.float64)
-    y_test = np.array(y_test, dtype=np.float64)
-    
-    forest_model, Forest_accuracy = RandomForest.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
-    boosting_model, Boosting_accuracy = GradientBoosting.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
-    linear_model, Linear_accuracy = Linear.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
-    table.insert(6, "Forest_Jpred", forest_model.predict(np.array(table_in, dtype=np.float64)))
-    table.insert(7, "Boosting_Jpred", boosting_model.predict(np.array(table_in, dtype=np.float64)))
-    table.insert(8, "Linear_Jpred", linear_model.predict(np.array(table_in, dtype=np.float64)))
-    print(Forest_accuracy, Boosting_accuracy)
-    
-    def create_graphs_J():
-        ns = np.arange(1, 201, 1)
-        plt.plot(ns, Forest_accuracy, ns, Boosting_accuracy, linewidth=2.0)
-        plt.title('Models accuracy', fontsize=14, fontname='Times New Roman')
-        plt.xlabel('N estimators', fontsize=14, fontname='Times New Roman')
-        plt.ylabel('Accuracy', fontsize=14, fontname='Times New Roman')
-        plt.grid(True)
+    new_table[column_order].to_excel("predictions_table_J.xlsx", index=False)
 
-        Forest_accuracy_max = max(Forest_accuracy)
-        xpos = Forest_accuracy.index(Forest_accuracy_max)
-        xmax = ns[xpos]
-        plt.annotate(f"{Forest_accuracy_max.__round__(4), xmax}", xy=(xmax, Forest_accuracy_max), xytext=(xmax-10, Forest_accuracy_max + 0.01))
+    X_parced = np.array(df[["T_delta_flare", "Flare_power"]], dtype=np.float64)
+    y_parced = np.array(df[["T_delta_SPE"]], dtype=np.float64)
+    scaler_X_T = StandardScaler()
+    scaler_y_T = StandardScaler()
+    X = scaler_X_T.fit_transform(X_parced)
+    y = scaler_y_T.fit_transform(y_parced)
 
-        Boosting_accuracy_max = max(Boosting_accuracy)
-        xpos = Boosting_accuracy.index(Boosting_accuracy_max)
-        xmax = ns[xpos]
-        plt.annotate(f"{Boosting_accuracy_max.__round__(4), xmax}", xy=(xmax, Boosting_accuracy_max), xytext=(xmax-10, Boosting_accuracy_max - 0.05))
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
 
-        plt.legend(['RandomForest_J', 'GradientBoosting_J'], loc=4)
-        plt.show()
+    models_T = {
+        "Forest": RandomForestRegressor(random_state=42),
+        "Boosting": GradientBoostingRegressor(random_state=42),
+        "Linear": LinearRegression()
+    }
 
-    table_out2 = [[row["Tmax delta"]] for index, row in table.iterrows()]
+    print("\n" + "="*40)
+    print("Оценка моделей для Delta_T_max")
+    print("="*40)
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        table_in, table_out2, test_size=0.1, random_state=16
-    )
-    X_train = np.array(X_train, dtype=np.float64)
-    X_test = np.array(X_test, dtype=np.float64)
-    y_train = np.array(y_train, dtype=np.float64)
-    y_test = np.array(y_test, dtype=np.float64)
+    for name, model in models_T.items():
+        pred_scaled = cross_val_predict(model, X, y, cv=kf)
+        y_pred = scaler_y_T.inverse_transform(pred_scaled.reshape(-1, 1)).ravel()
 
-    forest_model, Forest_accuracy = RandomForest.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
-    boosting_model, Boosting_accuracy = GradientBoosting.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
-    linear_model, Linear_accuracy = Linear.fit(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test)
-    table.insert(9, "Forest_DTpred", forest_model.predict(np.array(table_in, dtype=np.float64)))
-    table.insert(10, "Boosting_DTpred", boosting_model.predict(np.array(table_in, dtype=np.float64)))
-    table.insert(11, "Linear_DTpred", linear_model.predict(np.array(table_in, dtype=np.float64)))
+        if np.any(y_parced == 0):
+            print(f"Warning: zeros in y_true for {name}, MAPE may be invalid.")
 
-    print(Forest_accuracy, Boosting_accuracy)
-    def create_graphs_DT():
-        ns = np.arange(1, 201, 1)
-        plt.plot(ns, Forest_accuracy, ns, Boosting_accuracy, linewidth=2.0)
-        plt.title('Models accuracy', fontsize=14, fontname='Times New Roman')
-        plt.xlabel('N estimators', fontsize=14, fontname='Times New Roman')
-        plt.ylabel('Accuracy', fontsize=14, fontname='Times New Roman')
-        plt.grid(True)
+        accuracy = root_mean_squared_error(y_parced.ravel(), y_pred)
+        
+        print(f"{model.__class__.__name__} CV Accuracy: {accuracy:.2f}")
+        # Обратное преобразование предсказаний
 
-        Forest_accuracy_max = max(Forest_accuracy)
-        xpos = Forest_accuracy.index(Forest_accuracy_max)
-        xmax = ns[xpos]
-        plt.annotate(f"{Forest_accuracy_max.__round__(4), xmax}", xy=(xmax, Forest_accuracy_max), xytext=(xmax-10, Forest_accuracy_max + 0.01))
+        new_table[f"{name}_Delta_T_max"] = y_pred
 
-        Boosting_accuracy_max = max(Boosting_accuracy)
-        xpos = Boosting_accuracy.index(Boosting_accuracy_max)
-        xmax = ns[xpos]
-        plt.annotate(f"{Boosting_accuracy_max.__round__(4), xmax}", xy=(xmax, Boosting_accuracy_max), xytext=(xmax-10, Boosting_accuracy_max - 0.05))
-
-        plt.legend(['RandomForest_DT', 'GradientBoosting_DT'], loc=4)
-        plt.show()
-    
-    table.to_excel("dump.xlsx")
+    new_table["True_Delta_T_max"] = y_parced
+    column_order = [
+        "Event_date", 
+        "T_delta_flare", 
+        "Flare_power", 
+        "True_Delta_T_max",
+        "Forest_Delta_T_max", 
+        "Boosting_Delta_T_max", 
+        "Linear_Delta_T_max"
+    ]
+    new_table[column_order].to_excel("predictions_table_T.xlsx", index=False)

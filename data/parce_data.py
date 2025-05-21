@@ -9,7 +9,7 @@ def process_23_cycle(file_path: str) -> pd.DataFrame:
     df = pd.read_excel(file_path, sheet_name="AllPages")
     df.columns = df.columns.str.replace(r"\n|\s+", "", regex=True)
     df = df.drop([name for name in df.columns if "Unnamed" in name], axis=1)
-    print(df.info())
+    # print(df.info())
 
     # 1. Парсинг Event name
     df["Event_date"] = (
@@ -789,6 +789,21 @@ def remove_duplicates_by_event_date_and_delta(df: pd.DataFrame) -> pd.DataFrame:
     
     return df_cleaned
 
+def filter_by_jmax(df: pd.DataFrame, threshold: float = 10) -> pd.DataFrame:
+    """
+    Фильтрация строк по значению Jmax_parsed > threshold.
+    Пропуски и некорректные значения игнорируются.
+
+    :param df: исходный DataFrame с колонкой 'Jmax_parsed'
+    :param threshold: пороговое значение (по умолчанию 10)
+    :return: отфильтрованный DataFrame
+    """
+    # Приведение к числовому типу (на случай если тип не float)
+    jmax_numeric = pd.to_numeric(df['Jmax_parsed'], errors='coerce')
+    # Булев фильтр: только те строки, где Jmax_parsed > threshold
+    mask = jmax_numeric > threshold
+    return df[mask].copy()
+
 df_23 = process_23_cycle("data/23 цикл.xlsx")
 df_24 = process_24_cycle("data/24 цикл.xlsx")
 df_25 = process_25_cycle("data/25 цикл.xlsx")
@@ -830,6 +845,7 @@ df = pd.concat(
 df = convert_column_types(df)
 df = filter_anomalies(df)
 df = remove_duplicates_by_event_date_and_delta(df)
+df = filter_by_jmax(df, threshold=10)
 
 df_25 = convert_column_types(df_25)
 df_25 = filter_anomalies(df_25)
