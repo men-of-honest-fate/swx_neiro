@@ -489,6 +489,176 @@ def process_24_cycle(file_path: str) -> pd.DataFrame:
 
     return df
 
+
+def process_25_cycle(file_path: str) -> pd.DataFrame:
+    """Обработка данных солнечных протонных событий из xlsx файла"""
+    
+    # Загрузка данных из Excel файла
+    df = pd.read_excel(file_path, sheet_name="Отфильтрованные")
+    
+    # Преобразование даты события в datetime формат
+    df["Event_date"] = df["Event Date"].apply(
+        lambda x: pd.to_datetime(x.split("-")[0], format="%Y.%m.%d", errors="coerce")
+    )
+    
+    # Парсинг времени начала события (Start)
+    def parse_start_time(event_date, start_str):
+        try:
+            match = re.search(r"(\d{1,2})h(\d{1,2})m", start_str)
+            if match:
+                hours = int(match.group(1))
+                minutes = int(match.group(2))
+                return event_date + timedelta(hours=hours, minutes=minutes)
+            return pd.NaT
+        except:
+            return pd.NaT
+    
+    df["Start_datetime"] = df.apply(
+        lambda x: parse_start_time(x["Event_date"], x["Start (Day/UT)"]), axis=1
+    )
+    
+    # Парсинг времени максимума (Tmax1)
+    def parse_tmax(event_date, tmax_str):
+        try:
+            match = re.search(r"(\d{1,2})d(\d{1,2})h(\d{1,2})m", tmax_str)
+            if match:
+                days = int(match.group(1))
+                hours = int(match.group(2))
+                minutes = int(match.group(3))
+                
+                # Создаем дату с днем из строки и месяцем/годом из event_date
+                new_date = event_date.replace(day=days) + timedelta(hours=hours, minutes=minutes)
+                return new_date
+            return pd.NaT
+        except:
+            return pd.NaT
+    
+    df["Tmax_parsed"] = df.apply(
+        lambda x: parse_tmax(x["Event_date"], x["Tmax1 (UT)"]), axis=1
+    )
+    
+    # Парсинг времени вспышки (T0 FL)
+    def parse_flare_time(event_date, flare_str):
+        try:
+            match = re.search(r"(\d{1,2})d(\d{1,2})h(\d{1,2})m", flare_str)
+            if match:
+                days = int(match.group(1))
+                hours = int(match.group(2))
+                minutes = int(match.group(3))
+                
+                new_date = event_date.replace(day=days) + timedelta(hours=hours, minutes=minutes)
+                return new_date
+            return pd.NaT
+        except:
+            return pd.NaT
+    
+    df["Flare_datetime"] = df.apply(
+        lambda x: parse_flare_time(x["Event_date"], x["T0 FL (Day/UT)"]), axis=1
+    )
+    
+    # Преобразование Jmax1 в числовой формат
+    df["Jmax_parsed"] = pd.to_numeric(df["Jmax1 (pfu)"], errors="coerce")
+    
+    # Парсинг класса вспышки
+    def parse_flare_class(flare_str):
+        """
+        Извлекает интенсивность солнечной вспышки и конвертирует в мощность (Вт/м²)
+        """
+        if pd.isna(flare_str) or flare_str == "-" or flare_str == "...":
+            return None
+            
+        # Обработка случаев с несколькими вспышками
+        if ";" in flare_str:
+            parts = flare_str.split(";")
+            flare_str = parts[0].strip()  # Берем первую вспышку
+            
+        # Очистка строки от специальных символов
+        flare_str = str(flare_str).replace(">", "").replace("~", "").replace('"', '')
+        
+        # Замена кириллической 'С' на латинскую 'C'
+        flare_str = flare_str.replace("С", "C")
+        
+        # Замена запятой на точку в числовых значениях
+        flare_str = re.sub(r'(\d),(\d)', r'\1.\2', flare_str)
+        
+        # Регулярное выражение для поиска класса вспышки
+        intensity_pattern = re.compile(r"([ABCMX])(\d+\.?\d*)")
+        
+        # Проверка форматов записи
+        if "/" in flare_str:
+            parts = flare_str.split("/", 1)
+            intensity = None
+            
+            # Проверяем обе части на наличие интенсивности
+            for part in parts:
+                match = intensity_pattern.search(part)
+                if match:
+                    intensity = (match.group(1), float(match.group(2)))
+                    break
+                    
+            if intensity is None:
+                return None
+        else:
+            # Проверяем всю строку
+            match = intensity_pattern.search(flare_str)
+            if match:
+                intensity = (match.group(1), float(match.group(2)))
+            else:
+                return None
+                
+        # Преобразование класса вспышки в мощность
+        class_letter, multiplier = intensity
+        
+        if class_letter == "A":
+            return multiplier * 1.0e-8  # меньше 10⁻⁷
+        elif class_letter == "B":
+            return multiplier * 1.0e-7  # от 1.0×10⁻⁷ до 10⁻⁶
+        elif class_letter == "C":
+            return multiplier * 1.0e-6  # от 1.0×10⁻⁶ до 10⁻⁵
+        elif class_letter == "M":
+            return multiplier * 1.0e-5  # от 1.0×10⁻⁵ до 10⁻⁴
+        elif class_letter == "X":
+            return multiplier * 1.0e-4  # больше 10⁻⁴
+            
+        return None
+    
+    df["Flare_power"] = df["Importance (Xray/Opt)"].apply(parse_flare_class)
+    
+    # Добавление временных интервалов
+    def add_time_delta_columns(df):
+        """Добавление колонок с временными интервалами"""
+        
+        # Временной интервал между вспышкой и началом СПС
+        df["T_delta_flare"] = (
+            df["Start_datetime"] - df["Flare_datetime"]
+        ).dt.total_seconds() / 3600
+        
+        # Временной интервал между началом СПС и его максимумом
+        df["T_delta_SPE"] = (
+            df["Tmax_parsed"] - df["Start_datetime"]
+        ).dt.total_seconds() / 3600
+        
+        # Обработка выбросов и некорректных значений
+        # df.loc[df["T_delta_flare_to_start"] < -24, "T_delta_flare_to_start"] = np.nan
+        # df.loc[df["T_delta_start_to_max"] < 0, "T_delta_start_to_max"] = np.nan
+        # df.loc[df["T_delta_flare_to_max"] < -24, "T_delta_flare_to_max"] = np.nan
+        
+        return df
+    
+    df = add_time_delta_columns(df)
+    
+    # Создание финального DataFrame с нужными колонками
+    result_df = df[[
+        "Event_date",
+        "Tmax_parsed",
+        "Jmax_parsed",
+        "Flare_power",
+        "T_delta_flare",
+        "T_delta_SPE"
+    ]]
+    
+    return result_df
+
 def filter_anomalies(df: pd.DataFrame) -> pd.DataFrame:
     """Фильтрация аномальных строк по 5 ключевым критериям"""
     df = df.dropna(
@@ -621,14 +791,13 @@ def remove_duplicates_by_event_date_and_delta(df: pd.DataFrame) -> pd.DataFrame:
 
 df_23 = process_23_cycle("data/23 цикл.xlsx")
 df_24 = process_24_cycle("data/24 цикл.xlsx")
+df_25 = process_25_cycle("data/25 цикл.xlsx")
 
 df = pd.concat(
     (
         df_23[
             [
                 "Event_date",
-                "Peak_time",
-                "T0_datetime",
                 "T_delta_flare",
                 "Tmax_parsed",
                 "T_delta_SPE",
@@ -639,8 +808,6 @@ df = pd.concat(
         df_24[
             [
                 "Event_date",
-                "Peak_time",
-                "T0_datetime",
                 "T_delta_flare",
                 "Tmax_parsed",
                 "T_delta_SPE",
@@ -648,8 +815,22 @@ df = pd.concat(
                 "Flare_power",
             ]
         ],
+        # df_25[
+        #     [
+        #         "Event_date",
+        #         "T_delta_flare",
+        #         "Tmax_parsed",
+        #         "T_delta_SPE",
+        #         "Jmax_parsed",
+        #         "Flare_power",
+        #     ]
+        # ],
     )
 )
 df = convert_column_types(df)
 df = filter_anomalies(df)
 df = remove_duplicates_by_event_date_and_delta(df)
+
+df_25 = convert_column_types(df_25)
+df_25 = filter_anomalies(df_25)
+df_25 = remove_duplicates_by_event_date_and_delta(df_25)
