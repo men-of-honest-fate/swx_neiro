@@ -1,11 +1,12 @@
 import warnings
+import openpyxl
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-INPUT_XLSX = "predictions_results_oos_sc25.xlsx"
-OUT_DIR = "pred_plots"
+INPUT_XLSX = "predictions.xlsx"
+OUT_DIR = "plots"
 
 MODEL_COLORS = {
     "Boosting": "#1f77b4",
@@ -27,13 +28,15 @@ def _xy_true_line_and_pred_points(
     color: str,
     out_path: Path,
     xlabel: str,
-    ylabel: str
+    ylabel: str,
+    log_scale: bool = False
 ):
     """
     По X — экспериментальные значения.
-    По Y — для линии: те же экспериментальные значения (y_true),
-           для точек: предсказанные (y_pred).
-    Точки сортируются по X (y_true).
+    По Y — линия истины: те же экспериментальные значения (y_true).
+           точки: предсказанные (y_pred).
+    Точки сортируются по X (y_true), соединены линией.
+    log_scale: если True, логарифмические оси и пределы для Jmax.
     """
     mask = np.isfinite(y_true) & np.isfinite(y_pred)
     y_true = y_true[mask]
@@ -48,29 +51,31 @@ def _xy_true_line_and_pred_points(
     y_true_sorted = y_true[order]
     y_pred_sorted = y_pred[order]
 
-    x_min, x_max = float(x_sorted.min()), float(x_sorted.max())
-    y_min = float(min(y_true_sorted.min(), y_pred_sorted.min()))
-    y_max = float(max(y_true_sorted.max(), y_pred_sorted.max()))
-    xm = 0.05 * (x_max - x_min if x_max > x_min else 1.0)
-    ym = 0.05 * (y_max - y_min if y_max > y_min else 1.0)
-    x_min, x_max = x_min - xm, x_max + xm
-    y_min, y_max = y_min - ym, y_max + ym
-
     plt.figure(figsize=(7.5, 5.2))
 
     # Линия экспериментальных значений (ломаная): X = y_true, Y = y_true
     plt.plot(x_sorted, y_true_sorted, color="#444444", linewidth=2.0, label="Экспериментальные (линия)")
-
-    # Точки предсказаний: X = y_true, Y = y_pred
+    # Линия предсказаний
+    plt.plot(x_sorted, y_pred_sorted, color=color, linewidth=2.0, linestyle="--", alpha=0.8, label="Предсказанные (линия)")
+    # Точки предсказаний
     plt.scatter(x_sorted, y_pred_sorted, s=MS, c=color, alpha=ALPHA, edgecolor="k", linewidth=0.3, label="Предсказанные (точки)")
 
-    plt.grid(alpha=0.3)
+    plt.grid(alpha=0.3, which="both")
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.title(title)
-    plt.xlim(x_min, x_max)
-    plt.ylim(y_min, y_max)
-    plt.legend(loc="best", fontsize=9)
+
+    # Для Jmax: логарифм, пределы 10–2000
+    if log_scale:
+        plt.xscale("log")
+        plt.yscale("log")
+        plt.xlim(10, 2000)
+        plt.ylim(10, 2000)
+        ticks = [10, 20, 50, 100, 200, 500, 1000, 2000]
+        plt.xticks(ticks, [str(t) for t in ticks])
+        plt.yticks(ticks, [str(t) for t in ticks])
+
+    plt.legend(loc="best", fontsize=10)
     plt.tight_layout()
     plt.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close()
@@ -140,8 +145,9 @@ def main():
             y_pred = _safe_numeric(df_test[pred_col]).to_numpy()
             color = MODEL_COLORS.get(model_name, "#333333")
             title = f"{tname} — {model_name}"
-            out_path = out_dir / f"{tgt['basename']}_{model_name.lower()}_x_true_y_pred.png"
+            out_path = out_dir / f"{tgt['basename']}_{model_name.lower()}.png"
 
+            log_scale = (tgt["basename"] == "jmax")  # только для Jmax
             _xy_true_line_and_pred_points(
                 y_true=y_true,
                 y_pred=y_pred,
@@ -150,6 +156,7 @@ def main():
                 out_path=out_path,
                 xlabel=tgt["xlabel"],
                 ylabel=tgt["ylabel"],
+                log_scale=log_scale
             )
 
     print("Готово.")
