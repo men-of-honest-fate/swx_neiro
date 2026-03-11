@@ -177,12 +177,11 @@ def plot_separated_method_importances(
     """
     feature_names = list(feature_names)
     methods = ["builtin", "permutation", "shap"]
-    models = sorted({k[0] for k in importances_dict.keys()})  # порядок моделей фиксируем
+    models = sorted({k[0] for k in importances_dict.keys()})
     n_feats = len(feature_names)
     n_models = len(models)
 
-    # Собираем матрицы важностей по методам: (n_models, n_feats)
-    # т.е. строка = модель, столбцы = признаки
+    # Матрицы важностей по методам: (n_models, n_feats)
     mats = {}
     for method in methods:
         mat = np.zeros((n_models, n_feats), dtype=float)
@@ -191,64 +190,78 @@ def plot_separated_method_importances(
             mat[mi, :] = vec
         mats[method] = mat
 
-    # Рисуем 3 подграфика по вертикали
+    # Общий максимум и запас по оси Y для всех подграфиков,
+    # чтобы подписи не вылезали за пределы.[web:3]
+    global_max = max(mat.max() for mat in mats.values()) if mats else 0.0
+    y_pad = global_max * 0.08  # 8% от высоты – запас под подписи
+
     fig, axes = plt.subplots(
         nrows=3, ncols=1,
         figsize=(max(10, n_models * n_feats * 0.9), 6 + 2.0),
         sharex=False
     )
 
-    # Для читаемости: каждая модель = группа шириной group_width,
-    # внутри — n_feats столбцов (по числу признаков)
     group_width = 0.8
     bar_width = group_width / max(n_feats, 1)
-
-    cmap_feats = plt.cm.get_cmap("Set2", n_feats)  # разные цвета для признаков
+    cmap_feats = plt.cm.get_cmap("Set2", n_feats)
 
     for ax, method in zip(axes, methods):
-        mat = mats[method]  # (n_models, n_feats)
-
-        # Центры групп по моделям
+        mat = mats[method]
         x_groups = np.arange(n_models)
 
         bars = []
-        labels = []
-
-        # Для каждого признака рисуем по одному столбику в каждой модельной группе
         for fi, feat in enumerate(feature_names):
-            # Смещение внутри группы
             offset = (fi - (n_feats - 1) / 2) * bar_width
             x = x_groups + offset
-            y = mat[:, fi]  # важности этого признака по всем моделям
+            y = mat[:, fi]
             b = ax.bar(x, y, width=bar_width, color=cmap_feats(fi), label=feat)
             bars.append(b)
 
-            # Подписи над столбиками
+            # Подписи над столбиками с небольшим отступом,
+            # clip_on=True гарантирует, что текст обрежется по границе осей при необходимости.[web:22][web:28]
             for rect in b:
                 h = rect.get_height()
                 if h > 0:
                     ax.text(
                         rect.get_x() + rect.get_width() / 2,
-                        h, f"{h:.{decimals}f}%",
-                        ha="center", va="bottom", fontsize=8
+                        h,
+                        f"{h:.{decimals}f}%",
+                        ha="center",
+                        va="bottom",
+                        fontsize=8,
+                        clip_on=True,
                     )
 
-        # Настройки осей/сетки
         ax.set_xticks(x_groups)
         ax.set_xticklabels(models)
         ax.set_ylabel("Вклад, %")
         ax.set_title(f"{method}", loc="left", fontsize=11)
         ax.grid(axis="y", alpha=0.3)
 
-        # Легенда по признакам — один раз на подграфик (вверху справа)
-        ax.legend(ncol=min(n_feats, 4), fontsize=9, loc="upper right", title="Признаки")
+        # Общие пределы Y для всех подграфиков
+        ax.set_ylim(0, global_max + y_pad)
 
     fig.suptitle(title, fontsize=13)
-    plt.tight_layout()
-    plt.subplots_adjust(top=0.92)
+
+    # Одна общая легенда по признакам на уровне фигуры.[web:7][web:9][web:11]
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(
+        handles,
+        labels,
+        loc="upper right",
+        bbox_to_anchor=(0.9, 0.9),
+        ncol=min(len(feature_names), 4),
+        title="Признаки",
+        fontsize=9,
+    )
+
+    # Чуть ужать область под графики, чтобы у легенды и заголовка было место
+    plt.tight_layout(rect=[0.0, 0.0, 0.9, 0.9])
+
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     print(f"График (3 подграфика; группировка по моделям) сохранён в '{output_path}'")
     plt.show()
+
 
 
 
@@ -288,14 +301,14 @@ def main():
     models_j = {
         "Forest": make_pipeline(StandardScaler(), RandomForestRegressor(random_state=42)),
         "Boosting": make_pipeline(StandardScaler(), GradientBoostingRegressor(random_state=42)),
-        "Linear": make_pipeline(StandardScaler(), LinearRegression()),
+        # "Linear": make_pipeline(StandardScaler(), LinearRegression()),
     }
 
     # 6) Модели для T_delta_SPE
     models_t = {
         "Forest": make_pipeline(StandardScaler(), RandomForestRegressor(random_state=42)),
         "Boosting": make_pipeline(StandardScaler(), GradientBoostingRegressor(random_state=42)),
-        "Linear": make_pipeline(StandardScaler(), LinearRegression()),
+        # "Linear": make_pipeline(StandardScaler(), LinearRegression()),
     }
 
     kf = KFold(n_splits=5, shuffle=True, random_state=42)
@@ -352,8 +365,8 @@ def main():
     )
     plot_separated_method_importances(
         imp_j, FEATS,
-        title="Jmax_parsed — Builtin vs Permutation(ΔMSE) vs SHAP",
-        output_path="separated_methods_jmax.png",
+        title="Вклад переменных, максимальная интенсивность",
+        output_path="SHAP интенсивность.png",
         decimals=1
     )
 
@@ -399,8 +412,8 @@ def main():
     # Для T_delta_SPE
     plot_separated_method_importances(
         imp_t, FEATS,
-        title="T_delta_SPE — Builtin vs Permutation(ΔMSE) vs SHAP",
-        output_path="separated_methods_tdelta.png",
+        title="Вклад переменных, фаза нарастания",
+        output_path="SHAP фаза нарастания.png",
         decimals=1
     )
 
