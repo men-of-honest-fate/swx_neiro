@@ -13,16 +13,11 @@ import matplotlib.pyplot as plt
 from sklearn.inspection import permutation_importance
 
 
-INPUT_CSV = "processed_sps_data.csv"
-OUTPUT_XLSX = "predictions_results_oos_sc25.xlsx"
+INPUT_CSV = "data/processed.csv"
+OUTPUT_XLSX = "predictions.xlsx"
 
-
-# ==============================
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-# ==============================
 
 def _prepare_xy(df: pd.DataFrame, feature_cols, target_col: str):
-    """Формирует X, y и индекс строк после фильтрации NaN/inf."""
     feature_cols = list(feature_cols)
     cols = feature_cols + [target_col]
     work = df[cols].copy()
@@ -34,12 +29,8 @@ def _prepare_xy(df: pd.DataFrame, feature_cols, target_col: str):
 
 
 def permutation_importance_mse_custom(estimator, X, y, scorer, n_repeats=20, random_state=42):
-    """
-    Общая обёртка для permutation importance через переданный scorer.
-    Возвращает сырые важности (Δошибка) длины n_features.
-    """
     rng = np.random.default_rng(random_state)
-    base_score = scorer(estimator, X, y)  # например, -MSE в исходной шкале
+    base_score = scorer(estimator, X, y)
     importances = np.zeros(X.shape[1], dtype=float)
 
     for j in range(X.shape[1]):
@@ -48,7 +39,7 @@ def permutation_importance_mse_custom(estimator, X, y, scorer, n_repeats=20, ran
             Xp = X.copy()
             rng.shuffle(Xp[:, j])
             scores.append(scorer(estimator, Xp, y))
-        delta = base_score - np.mean(scores)   # для -MSE это >= 0 при ухудшении
+        delta = base_score - np.mean(scores)
         importances[j] = max(delta, 0.0)
 
     return importances
@@ -60,19 +51,13 @@ def build_importances_for_target(
     y_train: np.ndarray,
     feature_names: list | tuple,
     *,
-    # для Jmax, если модель обучалась на y_scaled (scaled логарифм)
     is_jmax: bool = False,
-    y_scaler=None,   # StandardScaler обученный на y_log
+    y_scaler=None,
     inv_target: bool = False,
 ):
-    """
-    Считает важности тремя методами для набора моделей и одной цели.
-    Возвращает словарь {(model_name, method): importance_vector_%}.
-    """
     feature_names = list(feature_names)
     out = {}
 
-    # 1) Builtin (деревья) / |coef| (линейная) → нормируем до 100%
     for name, model in models_dict.items():
         fi = None
         if hasattr(model, "feature_importances_"):
@@ -82,13 +67,11 @@ def build_importances_for_target(
                 if hasattr(st, "feature_importances_"):
                     fi = np.asarray(st.feature_importances_, dtype=float)
                     break
-        # Fallback для линейной: модуль коэффициентов последнего шага
         if fi is None and hasattr(model, "named_steps"):
             steps = list(model.named_steps.items())
             last = steps[-1][1]
             if hasattr(last, "coef_"):
                 fi = np.abs(np.asarray(last.coef_, dtype=float))
-
         if fi is None:
             fi = np.zeros(len(feature_names), dtype=float)
 
@@ -97,10 +80,8 @@ def build_importances_for_target(
         fi_pct = (fi / s * 100.0) if s > 0 else fi
         out[(name, "builtin")] = fi_pct
 
-    # 2) Permutation (ΔMSE ≥ 0) → нормируем до 100%
     for name, model in models_dict.items():
         if is_jmax and inv_target and y_scaler is not None:
-            # scorer для Jmax в исходной шкале
             def scorer(est, X, y_true):
                 y_pred_scaled = est.predict(X)
                 y_pred_log = y_scaler.inverse_transform(y_pred_scaled.reshape(-1, 1)).ravel()
@@ -111,7 +92,6 @@ def build_importances_for_target(
                 model, X_train, y_train, scorer, n_repeats=50, random_state=42
             )
         else:
-            # Для T_delta_SPE можно оставить встроенный путь
             res = permutation_importance(
                 model, X_train, y_train,
                 n_repeats=50, random_state=42, scoring="neg_mean_squared_error"
@@ -124,7 +104,6 @@ def build_importances_for_target(
         pimps_pct = (pimps / s * 100.0) if s > 0 else pimps
         out[(name, "permutation")] = pimps_pct
 
-    # 3) SHAP (TreeExplainer/LinearExplainer), затем нормировка до 100%
     try:
         import shap
     except Exception:
@@ -168,20 +147,16 @@ def plot_separated_method_importances(
     output_path: str,
     decimals: int = 1
 ):
-    """
-    Три подграфика (builtin, permutation, shap).
-    Группировка ПО МОДЕЛЯМ: для каждой модели рядом стоят столбцы по всем признакам.
-
-    importances_dict: {(model_name, method_name): vector_%}
-    feature_names: список имён признаков (в порядке столбцов в векторе)
-    """
     feature_names = list(feature_names)
     methods = ["builtin", "permutation", "shap"]
     models = sorted({k[0] for k in importances_dict.keys()})
     n_feats = len(feature_names)
     n_models = len(models)
 
+<<<<<<< HEAD:new.py
     # Матрицы важностей по методам: (n_models, n_feats)
+=======
+>>>>>>> b43e0ec9e5ef99406bdbff15dee2a7cb54fc2ae3:train.py
     mats = {}
     for method in methods:
         mat = np.zeros((n_models, n_feats), dtype=float)
@@ -190,11 +165,14 @@ def plot_separated_method_importances(
             mat[mi, :] = vec
         mats[method] = mat
 
+<<<<<<< HEAD:new.py
     # Общий максимум и запас по оси Y для всех подграфиков,
     # чтобы подписи не вылезали за пределы.[web:3]
     global_max = max(mat.max() for mat in mats.values()) if mats else 0.0
     y_pad = global_max * 0.08  # 8% от высоты – запас под подписи
 
+=======
+>>>>>>> b43e0ec9e5ef99406bdbff15dee2a7cb54fc2ae3:train.py
     fig, axes = plt.subplots(
         nrows=3, ncols=1,
         figsize=(max(10, n_models * n_feats * 0.9), 6 + 2.0),
@@ -203,13 +181,25 @@ def plot_separated_method_importances(
 
     group_width = 0.8
     bar_width = group_width / max(n_feats, 1)
+<<<<<<< HEAD:new.py
+=======
+
+>>>>>>> b43e0ec9e5ef99406bdbff15dee2a7cb54fc2ae3:train.py
     cmap_feats = plt.cm.get_cmap("Set2", n_feats)
 
     for ax, method in zip(axes, methods):
         mat = mats[method]
+<<<<<<< HEAD:new.py
         x_groups = np.arange(n_models)
 
         bars = []
+=======
+
+        x_groups = np.arange(n_models)
+
+        bars = []
+
+>>>>>>> b43e0ec9e5ef99406bdbff15dee2a7cb54fc2ae3:train.py
         for fi, feat in enumerate(feature_names):
             offset = (fi - (n_feats - 1) / 2) * bar_width
             x = x_groups + offset
@@ -217,8 +207,11 @@ def plot_separated_method_importances(
             b = ax.bar(x, y, width=bar_width, color=cmap_feats(fi), label=feat)
             bars.append(b)
 
+<<<<<<< HEAD:new.py
             # Подписи над столбиками с небольшим отступом,
             # clip_on=True гарантирует, что текст обрежется по границе осей при необходимости.[web:22][web:28]
+=======
+>>>>>>> b43e0ec9e5ef99406bdbff15dee2a7cb54fc2ae3:train.py
             for rect in b:
                 h = rect.get_height()
                 if h > 0:
@@ -238,8 +231,12 @@ def plot_separated_method_importances(
         ax.set_title(f"{method}", loc="left", fontsize=11)
         ax.grid(axis="y", alpha=0.3)
 
+<<<<<<< HEAD:new.py
         # Общие пределы Y для всех подграфиков
         ax.set_ylim(0, global_max + y_pad)
+=======
+        ax.legend(ncol=min(n_feats, 4), fontsize=9, loc="upper right", title="Признаки")
+>>>>>>> b43e0ec9e5ef99406bdbff15dee2a7cb54fc2ae3:train.py
 
     fig.suptitle(title, fontsize=13)
 
@@ -263,28 +260,27 @@ def plot_separated_method_importances(
     plt.show()
 
 
+<<<<<<< HEAD:new.py
 
 
 # ==============================
 # ОСНОВНОЙ СКРИПТ
 # ==============================
 
+=======
+>>>>>>> b43e0ec9e5ef99406bdbff15dee2a7cb54fc2ae3:train.py
 def main():
     warnings.filterwarnings("ignore")
 
-    # 1) Загрузка данных
     header = pd.read_csv(INPUT_CSV, nrows=0)
     parse_dates = [c for c in ["Event_date", "Tmax_parsed"] if c in header.columns]
     df = pd.read_csv(INPUT_CSV, parse_dates=parse_dates)
 
-    # 2) Проверка схемы
-    # Примечание: если в вашем CSV колонка называется "cycle", замените "Cycle" ниже на "cycle"
     required = {"T_delta_flare", "Flare_power", "Jmax_parsed", "T_delta_SPE", "Cycle"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"В CSV отсутствуют требуемые колонки: {sorted(missing)}")
 
-    # 3) Разделение по циклам (cycle только для split)
     cycle_num = pd.to_numeric(df["Cycle"], errors="coerce")
     df = df.assign(cycle_num=cycle_num)
 
@@ -294,9 +290,9 @@ def main():
     if train_df.empty or test_df.empty:
         raise ValueError("Недостаточно данных в train (cycles 23–24) или test (cycle 25).")
 
-    # 4) Признаки
     FEATS = ["T_delta_flare", "Flare_power"]
 
+<<<<<<< HEAD:new.py
     # 5) Модели для Jmax
     models_j = {
         "Forest": make_pipeline(StandardScaler(), RandomForestRegressor(random_state=42)),
@@ -310,110 +306,176 @@ def main():
         "Boosting": make_pipeline(StandardScaler(), GradientBoostingRegressor(random_state=42)),
         # "Linear": make_pipeline(StandardScaler(), LinearRegression()),
     }
+=======
+    # Масштабировщики признаков и целей для каждого таргета
+    X_scaler_j = StandardScaler()
+    y_scaler_j_log = StandardScaler()  # для лог-тренированного Jmax
+    
+    X_scaler_t = StandardScaler()
+    y_scaler_t = StandardScaler()  # для T_delta_SPE
+>>>>>>> b43e0ec9e5ef99406bdbff15dee2a7cb54fc2ae3:train.py
 
     kf = KFold(n_splits=5, shuffle=True, random_state=42)
 
-    # Таблица результатов
     base_cols = [c for c in ["Event_date", "T_delta_flare", "Flare_power", "Cycle"] if c in df.columns]
     new_table = df[base_cols].copy()
     new_table["split"] = np.where(df.index.isin(test_df.index), "test_sc25", "train_sc23_24")
 
     # =========================
-    # Блок A: Jmax_parsed
+    # Блок A: Jmax_parsed (с лог-трансформацией И масштабированием)
     # =========================
     Xtr_j, ytr_j, idx_tr_j = _prepare_xy(train_df, FEATS, "Jmax_parsed")
-    # Лог-скейл → стандартизация (как у вас)
+    
+    # Масштабируем признаки
+    X_scaled_j = X_scaler_j.fit_transform(Xtr_j)
+    
+    # Лог-трансформация и масштабирование цели
     ytr_log = np.log1p(ytr_j)
-    ysc = StandardScaler().fit(ytr_log.reshape(-1, 1))
-    ytr_scaled = ysc.transform(ytr_log.reshape(-1, 1)).ravel()
+    y_scaled_j = y_scaler_j_log.fit_transform(ytr_log.reshape(-1, 1)).ravel()
 
     print("\n" + "=" * 40)
     print("Jmax_parsed — Train (cycles 23–24) CV RMSE")
     print("=" * 40)
+    print("[Модели обучаются на масштабированных X и y (лог-трансформированные)]")
 
-    for name in models_j:
+    for name in ["Forest", "Boosting", "Linear"]:
         new_table[f"{name}_Jpred"] = np.nan
 
+    # Инициализируем модели
+    models_j = {
+        "Forest": RandomForestRegressor(random_state=42),
+        "Boosting": GradientBoostingRegressor(random_state=42),
+        "Linear": LinearRegression(),
+    }
+
+    # CV на масштабированном пространстве
     for name, model in models_j.items():
-        ycv_scaled = cross_val_predict(model, Xtr_j, ytr_scaled, cv=kf)
-        ycv_log = ysc.inverse_transform(ycv_scaled.reshape(-1, 1)).ravel()
-        ycv = np.expm1(ycv_log)
-        ycv = np.clip(ycv, 0.0, None)
-        rmse_cv = root_mean_squared_error(ytr_j, ycv)
+        y_cv_pred_scaled = cross_val_predict(model, X_scaled_j, y_scaled_j, cv=kf)
+        
+        # Обратные преобразования для оценки RMSE в исходной шкале
+        y_cv_pred_log = y_scaler_j_log.inverse_transform(y_cv_pred_scaled.reshape(-1, 1)).ravel()
+        y_cv_pred = np.expm1(y_cv_pred_log)
+        y_cv_pred = np.clip(y_cv_pred, 0.0, None)
+        
+        rmse_cv = root_mean_squared_error(ytr_j, y_cv_pred)
         print(f"{name}: {rmse_cv:.2f}")
 
+    # Обучение и тестирование
     Xte_j, yte_j, idx_te_j = _prepare_xy(test_df, FEATS, "Jmax_parsed")
+    X_scaled_te_j = X_scaler_j.transform(Xte_j)
+
     for name, model in models_j.items():
-        model.fit(Xtr_j, ytr_scaled)
-        ypred_scaled = model.predict(Xte_j)
-        ypred_log = ysc.inverse_transform(np.asarray(ypred_scaled).reshape(-1, 1)).ravel()
-        ypred = np.expm1(ypred_log)
-        ypred = np.clip(ypred, 0.0, None)
-        rmse_test = root_mean_squared_error(yte_j, ypred)
+        # Обучение на масштабированном пространстве
+        model.fit(X_scaled_j, y_scaled_j)
+        
+        # Предсказание на тесте в масштабированном пространстве
+        y_test_pred_scaled = model.predict(X_scaled_te_j)
+        
+        # Обратные преобразования
+        y_test_pred_log = y_scaler_j_log.inverse_transform(y_test_pred_scaled.reshape(-1, 1)).ravel()
+        y_test_pred = np.expm1(y_test_pred_log)
+        y_test_pred = np.clip(y_test_pred, 0.0, None)
+        
+        rmse_test = root_mean_squared_error(yte_j, y_test_pred)
         print(f"Test SC25 {name} RMSE: {rmse_test:.2f}")
-        new_table.loc[idx_te_j, f"{name}_Jpred"] = ypred
+        new_table.loc[idx_te_j, f"{name}_Jpred"] = y_test_pred
 
     # Важности для Jmax
     imp_j = build_importances_for_target(
         models_dict=models_j,
-        X_train=Xtr_j,
-        y_train=ytr_j,    # важен таргет в исходной шкале для ΔMSE
+        X_train=X_scaled_j,
+        y_train=y_scaled_j,
         feature_names=FEATS,
         is_jmax=True,
-        y_scaler=ysc,
+        y_scaler=y_scaler_j_log,
         inv_target=True
     )
     plot_separated_method_importances(
         imp_j, FEATS,
+<<<<<<< HEAD:new.py
         title="Вклад переменных, максимальная интенсивность",
         output_path="SHAP интенсивность.png",
+=======
+        title="Jmax_parsed — Builtin vs Permutation(ΔMSE) vs SHAP",
+        output_path="plots/importance_jmax.png",
+>>>>>>> b43e0ec9e5ef99406bdbff15dee2a7cb54fc2ae3:train.py
         decimals=1
     )
 
     # =========================
-    # Блок B: T_delta_SPE
+    # Блок B: T_delta_SPE (с масштабированием y)
     # =========================
     Xtr_t, ytr_t, idx_tr_t = _prepare_xy(train_df, FEATS, "T_delta_SPE")
+    
+    # Масштабируем X и y
+    X_scaled_t = X_scaler_t.fit_transform(Xtr_t)
+    y_scaled_t = y_scaler_t.fit_transform(ytr_t.reshape(-1, 1)).ravel()
 
     print("\n" + "=" * 40)
     print("Delta_T_max (T_delta_SPE) — Train (cycles 23–24) CV RMSE")
     print("=" * 40)
+    print("[Модели обучаются на масштабированных X и y]")
 
-    for name in models_t:
+    for name in ["Forest", "Boosting", "Linear"]:
         col = f"{name}_Delta_T_max"
         if col not in new_table.columns:
             new_table[col] = np.nan
 
+    models_t = {
+        "Forest": RandomForestRegressor(random_state=42),
+        "Boosting": GradientBoostingRegressor(random_state=42),
+        "Linear": LinearRegression(),
+    }
+
+    # CV на масштабированном пространстве
     for name, model in models_t.items():
-        ycv_t = cross_val_predict(model, Xtr_t, ytr_t, cv=kf)
-        finite_mask = np.isfinite(ycv_t)
-        rmse_cv_t = root_mean_squared_error(ytr_t[finite_mask], ycv_t[finite_mask])
+        y_cv_pred_scaled = cross_val_predict(model, X_scaled_t, y_scaled_t, cv=kf)
+        
+        # Обратное преобразование в исходную шкалу
+        y_cv_pred = y_scaler_t.inverse_transform(y_cv_pred_scaled.reshape(-1, 1)).ravel()
+        
+        finite_mask = np.isfinite(y_cv_pred)
+        rmse_cv_t = root_mean_squared_error(ytr_t[finite_mask], y_cv_pred[finite_mask])
         print(f"{name}: {rmse_cv_t:.2f}")
 
+    # Обучение и тестирование
     Xte_t, yte_t, idx_te_t = _prepare_xy(test_df, FEATS, "T_delta_SPE")
+    X_scaled_te_t = X_scaler_t.transform(Xte_t)
+
     for name, model in models_t.items():
-        model.fit(Xtr_t, ytr_t)
-        ypred_t = model.predict(Xte_t)
-        finite_mask = np.isfinite(ypred_t)
-        rmse_test_t = root_mean_squared_error(yte_t[finite_mask], ypred_t[finite_mask])
+        # Обучение на масштабированном пространстве
+        model.fit(X_scaled_t, y_scaled_t)
+        
+        # Предсказание на тесте
+        y_test_pred_scaled = model.predict(X_scaled_te_t)
+        
+        # Обратное преобразование в исходную шкалу
+        y_test_pred = y_scaler_t.inverse_transform(y_test_pred_scaled.reshape(-1, 1)).ravel()
+        
+        finite_mask = np.isfinite(y_test_pred)
+        rmse_test_t = root_mean_squared_error(yte_t[finite_mask], y_test_pred[finite_mask])
         print(f"Test SC25 {name} RMSE: {rmse_test_t:.2f}")
-        new_table.loc[idx_te_t, f"{name}_Delta_T_max"] = ypred_t
+        new_table.loc[idx_te_t, f"{name}_Delta_T_max"] = y_test_pred
 
     # Важности для T_delta_SPE
     imp_t = build_importances_for_target(
         models_dict=models_t,
-        X_train=Xtr_t,
-        y_train=ytr_t,
+        X_train=X_scaled_t,
+        y_train=y_scaled_t,
         feature_names=FEATS,
         is_jmax=False,
         y_scaler=None,
         inv_target=False
     )
-    # Для T_delta_SPE
     plot_separated_method_importances(
         imp_t, FEATS,
+<<<<<<< HEAD:new.py
         title="Вклад переменных, фаза нарастания",
         output_path="SHAP фаза нарастания.png",
+=======
+        title="T_delta_SPE — Builtin vs Permutation(ΔMSE) vs SHAP",
+        output_path="plots/importance_tdelta.png",
+>>>>>>> b43e0ec9e5ef99406bdbff15dee2a7cb54fc2ae3:train.py
         decimals=1
     )
 
@@ -421,16 +483,10 @@ def main():
     if "Jmax_parsed" in df.columns and "T_delta_SPE" in df.columns:
         new_table["Jmax_parsed"] = pd.to_numeric(df["Jmax_parsed"], errors="coerce")
         new_table["T_delta_SPE"] = pd.to_numeric(df["T_delta_SPE"], errors="coerce")
-    else:
-        # На случай, если вы фильтровали/переименовывали — можно подтянуть из train/test датафреймов
-        if "Jmax_parsed" in train_df.columns:
-            new_table["Jmax_parsed"] = pd.to_numeric(df["Jmax_parsed"], errors="coerce")
-        if "T_delta_SPE" in train_df.columns:
-            new_table["T_delta_SPE"] = pd.to_numeric(df["T_delta_SPE"], errors="coerce")
 
     new_table.to_excel(OUTPUT_XLSX, index=False)
     print(f"\nРезультаты сохранены в '{OUTPUT_XLSX}'")
-    print("Столбцы 'Jmax_parsed' и 'T_delta_SPE' добавлены как истинные значения целей.")
+    print("Модели обучались на масштабированном пространстве (X и y)")
 
 
 if __name__ == "__main__":

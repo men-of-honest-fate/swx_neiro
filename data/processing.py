@@ -604,7 +604,7 @@ def report_negative_t_deltas(
 # =============================================================================
 if __name__ == "__main__":
     # Обработка данных
-    df = process_unified_sps_data("БД СПС.xlsx")
+    df = process_unified_sps_data("data/БД СПС.xlsx")
 
     # Применение фильтров
     df = filter_anomalies(df)
@@ -612,8 +612,8 @@ if __name__ == "__main__":
     df = filter_by_jmax(df, threshold=10)
 
     # Сохранение результата
-    df.to_csv("processed_sps_data.csv", index=False, encoding='utf-8')
-    print("✓ Данные сохранены в 'processed_sps_data.csv'")
+    df.to_csv("data/processed.csv", index=False, encoding='utf-8')
+    print("✓ Данные сохранены в 'processed.csv'")
 
     # Вывод итоговой статистики
     print(f"\n{'='*60}")
@@ -621,4 +621,4 @@ if __name__ == "__main__":
     print(f"{'='*60}")
     print(df.describe())
 
-    neg = report_negative_t_deltas(df, which="both", save_path="neg_t_deltas.csv")
+    # neg = report_negative_t_deltas(df, which="both", save_path="neg_t_deltas.csv")
