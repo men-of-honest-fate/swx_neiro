@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/Scripts/python.exe data/parce_pdf.py Catalog_SPE_24_cycle_SA.pdf --outdir results)",
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe data/parce_pdf.py Catalog_SPE_23_cycle_SA.en_compressed.pdf --outdir results)"
+    ]
+  }
+}

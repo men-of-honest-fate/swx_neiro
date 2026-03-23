@@ -152,6 +152,24 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+# ── Проект: данные и кеши ──────────────────────────────────────────────────────
+# Excel / CSV / PDF — большие файлы данных
+*.xlsx
+*.csv
+*.pdf
+
+# Кеши GOES XRS и NOAA
+goes_xrs_cache/
+noaa_cache/
+
+# HTML-кеши каталогов
+sinp_catalog_cached.html
+data/*.html
+data/*_files/
+
+# Lock-файлы Excel
+~$*.xlsx
+
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore

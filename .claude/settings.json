@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls c:/Users/rosla/Documents/GitHub/swx_neiro/*.py c:/Users/rosla/Documents/GitHub/swx_neiro/data/*.py)",
+      "WebSearch"
+    ]
+  }
+}

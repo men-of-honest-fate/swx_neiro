@@ -88,7 +88,10 @@ def process_unified_sps_data(file_path: str, sheet_name: str = "ОБЩАЯ БД"
             match = re.match(r'(\d{1,2})d(\d{1,2})h(\d{1,2})m', t0_str)
             if match:
                 days, hours, minutes = map(int, match.groups())
-                return event_date.replace(day=days) + timedelta(hours=hours, minutes=minutes)
+                dt = event_date.replace(day=days) + timedelta(hours=hours, minutes=minutes)
+                if dt < event_date:
+                    dt += pd.DateOffset(months=1)
+                return dt
 
             # Формат: HHh
             match = re.match(r'(\d{1,2})h', t0_str)
@@ -128,14 +131,20 @@ def process_unified_sps_data(file_path: str, sheet_name: str = "ОБЩАЯ БД"
                 match = re.match(r'(\d{1,2})d(\d{1,2})h(\d{1,2})m', part)
                 if match:
                     days, hours, minutes = map(int, match.groups())
-                    results.append(event_date.replace(day=days) + timedelta(hours=hours, minutes=minutes))
+                    dt = event_date.replace(day=days) + timedelta(hours=hours, minutes=minutes)
+                    if dt < event_date:
+                        dt += pd.DateOffset(months=1)
+                    results.append(dt)
                     continue
 
                 # Формат: DDdHHh
                 match = re.match(r'(\d{1,2})d(\d{1,2})h', part)
                 if match:
                     days, hours = map(int, match.groups())
-                    results.append(event_date.replace(day=days) + timedelta(hours=hours))
+                    dt = event_date.replace(day=days) + timedelta(hours=hours)
+                    if dt < event_date:
+                        dt += pd.DateOffset(months=1)
+                    results.append(dt)
                     continue
 
                 # Формат: DDdHHHH (слитная запись типа 05d0220)
@@ -145,7 +154,10 @@ def process_unified_sps_data(file_path: str, sheet_name: str = "ОБЩАЯ БД"
                     time_str = match.group(2)
                     hours = int(time_str[:2])
                     minutes = int(time_str[2:])
-                    results.append(event_date.replace(day=days) + timedelta(hours=hours, minutes=minutes))
+                    dt = event_date.replace(day=days) + timedelta(hours=hours, minutes=minutes)
+                    if dt < event_date:
+                        dt += pd.DateOffset(months=1)
+                    results.append(dt)
                     continue
         except:
             pass
@@ -347,15 +359,12 @@ def process_unified_sps_data(file_path: str, sheet_name: str = "ОБЩАЯ БД"
         
     # Δt от начала СПС до его максимума (часы)
     df['T_delta_SPE'] = (df['Tmax_parsed'] - df['T0_datetime']).dt.total_seconds() / 3600
-    mask_month_edge = (
-        (df["T_delta_SPE"] < 0)
-        & (
-            df["T0_datetime"].dt.is_month_end
-            | (df["T0_datetime"] + pd.Timedelta(days=1)).dt.is_month_end
-        )
-    )
+    # Страховочный фикс: если после парсинга T_delta_SPE < 0 — Tmax попал в неверный месяц
+    mask_month_edge = df["T_delta_SPE"] < 0
     df.loc[mask_month_edge, "Tmax_parsed"] = (
-        df.loc[mask_month_edge, "Tmax_parsed"] + pd.offsets.MonthBegin(1)
+        df.loc[mask_month_edge, "Tmax_parsed"].apply(
+            lambda t: t + pd.DateOffset(months=1) if pd.notna(t) else t
+        )
     )
     df["T_delta_SPE"] = (df["Tmax_parsed"] - df["T0_datetime"]).dt.total_seconds() / 3600
 

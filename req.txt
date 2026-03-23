@@ -6,3 +6,9 @@ scikit-learn
 openpyxl
 seaborn
 shap
+pdfplumber
+requests
+bs4
+sunpy[net,timeseries]
+mpl-animators
+pyarrow
