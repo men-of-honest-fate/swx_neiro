@@ -46,9 +46,16 @@ def load():
         pd.read_excel(ROOT / "data" / "ОБЪЕДИНЕННЫЙ КАТАЛОГ СПС 23-25.xlsx",
                       sheet_name="Флюэс GOES")
     )
-    cycle = pd.to_numeric(df[COL_CYCLE], errors="coerce")
-    train = df[cycle.isin([23, 24]) & (df["Jmax"].fillna(0) >= 10)].copy()
-    test  = df[cycle.isin([25])     & (df["Jmax"].fillna(0) >= 10)].copy()
+    cycle     = pd.to_numeric(df[COL_CYCLE], errors="coerce")
+    tdelta    = pd.to_numeric(df["T_delta"],       errors="coerce")
+    goes_rise = pd.to_numeric(df["goes_rise_min"], errors="coerce")
+    mask = (
+        (df["Jmax"].fillna(0) >= 10) &
+        (tdelta.fillna(0) <= 40) &
+        (goes_rise.fillna(0) <= 120)
+    )
+    train = df[cycle.isin([23, 24]) & mask].copy()
+    test  = df[cycle.isin([25])     & mask].copy()
     return train, test
 
 

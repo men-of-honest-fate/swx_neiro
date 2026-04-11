@@ -2,7 +2,16 @@
   "permissions": {
     "allow": [
       "Bash(.venv/Scripts/python.exe data/parce_pdf.py Catalog_SPE_24_cycle_SA.pdf --outdir results)",
-      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe data/parce_pdf.py Catalog_SPE_23_cycle_SA.en_compressed.pdf --outdir results)"
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe data/parce_pdf.py Catalog_SPE_23_cycle_SA.en_compressed.pdf --outdir results)",
+      "Bash(python plot_distribution_shift.py)",
+      "Bash(python3 -c \"import numpy\")",
+      "Read(//home/rosla/.venv/**)",
+      "Read(//home/rosla/**)",
+      "Bash(uv run:*)",
+      "Bash(sed -n '61,80p' /home/rosla/Documents/Github/swx_neiro/compare_ew.py)",
+      "Bash(sed -n '85,105p' /home/rosla/Documents/Github/swx_neiro/plot_ew_full.py)",
+      "Bash(sed -n '105,125p' /home/rosla/Documents/Github/swx_neiro/plot_ew_weighted_full.py)",
+      "Bash(sed -n '101,121p' /home/rosla/Documents/Github/swx_neiro/plot_ew_hybrid_full.py)"
     ]
   }
 }

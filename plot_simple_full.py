@@ -72,9 +72,16 @@ def load():
         pd.read_excel(ROOT / "data" / "ОБЪЕДИНЕННЫЙ КАТАЛОГ СПС 23-25.xlsx",
                       sheet_name="Флюэс GOES")
     )
-    cycle = pd.to_numeric(df[COL_CYCLE], errors="coerce")
-    train = df[cycle.isin([23, 24]) & (df["Jmax"].fillna(0) >= 10)].copy()
-    test  = df[cycle.isin([25])     & (df["Jmax"].fillna(0) >= 10)].copy()
+    cycle     = pd.to_numeric(df[COL_CYCLE], errors="coerce")
+    tdelta    = pd.to_numeric(df["T_delta"],       errors="coerce")
+    goes_rise = pd.to_numeric(df["goes_rise_min"], errors="coerce")
+    mask = (
+        (df["Jmax"].fillna(0) >= 10) &
+        (tdelta.fillna(0) <= 40) &
+        (goes_rise.fillna(0) <= 120)
+    )
+    train = df[cycle.isin([23, 24]) & mask].copy()
+    test  = df[cycle.isin([25])     & mask].copy()
     return train, test
 
 
@@ -306,10 +313,6 @@ def scatter_compact(train, test, tgt_col, log_tgt, out_prefix):
 
         fig, axes = plt.subplots(2, 2, figsize=(6.5, 6.0),
                                  sharex=True, sharey=True)
-        fig.suptitle(
-            f"{tgt_label} — «{fs_label}» · тест SC25 (n={len(y_te)})",
-            fontsize=10, y=1.01
-        )
 
         for ax, (mname, mdl), y_pred in zip(axes.flat, REG_MODELS.items(), all_preds):
             ax.scatter(y_te, y_pred, s=32, alpha=0.78,
@@ -323,11 +326,9 @@ def scatter_compact(train, test, tgt_col, log_tgt, out_prefix):
             ax.grid(alpha=0.2, zorder=0)
             ax.spines[["top", "right"]].set_visible(False)
 
-        # Общие подписи осей
-        for ax in axes[1]:
-            ax.set_xlabel(f"Факт ({ax_unit})", fontsize=8.5)
-        for ax in axes[:, 0]:
-            ax.set_ylabel(f"Прогноз ({ax_unit})", fontsize=8.5)
+        # Одна подпись на каждую ось (только нижняя строка и левый столбец)
+        axes[1, 0].set_xlabel(f"Факт ({ax_unit})", fontsize=8.5)
+        axes[1, 0].set_ylabel(f"Прогноз ({ax_unit})", fontsize=8.5)
 
         plt.tight_layout()
         safe = fs_label.replace(" ", "_").replace("+", "p").replace("/", "-")
@@ -490,6 +491,93 @@ def clf_compact(pipeline_name, title_label, out_prefix):
     print(f"  Saved: {out}")
 
 
+# ── E) Таблица точностей: все модели × все выборки ────────────────────────────
+
+PIPELINE_META = {
+    # (pipeline, target): (metric_col, metric_label, lower_is_better)
+    ("regression",   "Jmax"):         ("test_primary", "RMSLE (↓)",   True),
+    ("regression",   "T_delta"):      ("test_primary", "RMSE ч (↓)",  True),
+    ("jmax_clf",     "Jmax_class"):   ("test_primary", "LogLoss (↓)", True),
+    ("tdelta_clf",   "T_delta_class"):("test_primary", "LogLoss (↓)", True),
+}
+
+PIPELINE_TITLES = {
+    ("regression",  "Jmax"):          "Регрессия J$_{max}$",
+    ("regression",  "T_delta"):       "Регрессия T$_{\\Delta}$",
+    ("jmax_clf",    "Jmax_class"):    "Классификация J$_{max}$ (S-класс)",
+    ("tdelta_clf",  "T_delta_class"): "Классификация T$_{\\Delta}$",
+}
+
+
+def plot_accuracy_table():
+    results_path = ROOT / "results_simple" / "simple_results.xlsx"
+    if not results_path.exists():
+        print(f"  Нет файла {results_path}, пропуск таблицы.")
+        return
+
+    df = pd.read_excel(results_path)
+
+    tasks = list(PIPELINE_META.keys())
+    n_tasks = len(tasks)
+    fig, axes = plt.subplots(1, n_tasks, figsize=(5.5 * n_tasks, 5.5))
+
+    for ax, (pipe, tgt) in zip(axes, tasks):
+        metric_col, metric_label, lower_better = PIPELINE_META[(pipe, tgt)]
+        sub = df[(df["pipeline"] == pipe) & (df["target"] == tgt)].copy()
+        if sub.empty:
+            ax.axis("off")
+            continue
+
+        pivot = sub.pivot_table(
+            index="feature_set", columns="model",
+            values=metric_col, aggfunc="min"
+        )
+        # Порядок строк как в FEATURE_SETS
+        fs_order = [fs for fs, _ in FEATURE_SETS if fs in pivot.index]
+        pivot = pivot.reindex(fs_order)
+
+        vals = pivot.values.astype(float)
+        vmin, vmax = np.nanmin(vals), np.nanmax(vals)
+
+        # lower_better: зелёный = лучший (min), красный = худший
+        cmap = "RdYlGn_r" if lower_better else "RdYlGn"
+        im = ax.imshow(vals, cmap=cmap, aspect="auto", vmin=vmin, vmax=vmax)
+
+        # Подписи значений
+        for i in range(vals.shape[0]):
+            for j in range(vals.shape[1]):
+                v = vals[i, j]
+                if np.isnan(v):
+                    txt = "—"
+                    clr = "gray"
+                else:
+                    txt = f"{v:.3f}"
+                    rel = (v - vmin) / (vmax - vmin + 1e-9)
+                    # на зелёном фоне (rel~0 при lower_better) — тёмный текст
+                    rel_bright = rel if lower_better else (1 - rel)
+                    clr = "white" if rel_bright > 0.6 else "black"
+                ax.text(j, i, txt, ha="center", va="center",
+                        fontsize=8, color=clr, fontweight="bold")
+
+        ax.set_xticks(range(len(pivot.columns)))
+        ax.set_xticklabels(pivot.columns, rotation=30, ha="right", fontsize=8.5)
+        ax.set_yticks(range(len(pivot.index)))
+        ax.set_yticklabels(pivot.index, fontsize=8.5)
+        ax.set_title(
+            f"{PIPELINE_TITLES[(pipe, tgt)]}\n{metric_label}",
+            fontsize=10, fontweight="bold", pad=8
+        )
+        plt.colorbar(im, ax=ax, fraction=0.035, pad=0.03)
+
+    fig.suptitle("Метрики качества: тест SC25  (зелёный = лучший результат)",
+                 fontsize=12, fontweight="bold", y=1.01)
+    plt.tight_layout()
+    out = PLOTS_DIR / "accuracy_table.png"
+    plt.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"  Saved: {out}")
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -525,6 +613,9 @@ def main():
 
     print("\n── Compact clf: T_delta ──")
     clf_compact("tdelta_clf", "T$_{\\Delta}$ (Быстрые/Умеренные/Медленные)", "compact_clf_tdelta")
+
+    print("\n── Таблица точностей ──")
+    plot_accuracy_table()
 
     print("\nГотово.")
 

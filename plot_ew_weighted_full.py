@@ -108,7 +108,14 @@ def load_splits():
                       sheet_name="Флюэс GOES")
     )
     cycle = pd.to_numeric(df[COL_CYCLE], errors="coerce")
-    full  = df[df["Jmax"].fillna(0) >= 10].copy()
+    tdelta    = pd.to_numeric(df["T_delta"],       errors="coerce")
+    goes_rise = pd.to_numeric(df["goes_rise_min"], errors="coerce")
+    mask = (
+        (df["Jmax"].fillna(0) >= 10) &
+        (tdelta.fillna(0) <= 40) &
+        (goes_rise.fillna(0) <= 120)
+    )
+    full   = df[mask].copy()
     tr_all = full[cycle.isin([23, 24])].copy()
     te_all = full[cycle.isin([25])].copy()
     splits = {

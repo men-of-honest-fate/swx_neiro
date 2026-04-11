@@ -46,19 +46,21 @@ def load_data() -> pd.DataFrame:
     df = pd.read_excel(DATA_PATH, sheet_name=SHEET_NAME)
 
     # Нужные колонки
-    df = df[["Цикл", "NOAA_Rise_Min", "T_delta_flare_onset",
-             "Фаза нарастания (часы)"]].copy()
+    df = df[["Цикл", "GOES_Rise_Min", "T_delta_flare_onset",
+             "Фаза нарастания (часы)", "Максимальная интенсивность"]].copy()
 
     df = df.rename(columns={
-        "Цикл":                    "Cycle",
-        "NOAA_Rise_Min":           "xray_rise_min",
-        "T_delta_flare_onset":     "flare_to_spe_h",
-        "Фаза нарастания (часы)":  "spe_rise_h",
+        "Цикл":                       "Cycle",
+        "GOES_Rise_Min":              "xray_rise_min",
+        "T_delta_flare_onset":        "flare_to_spe_h",
+        "Фаза нарастания (часы)":     "spe_rise_h",
+        "Максимальная интенсивность": "jmax",
     })
 
-    df["Cycle"] = pd.to_numeric(df["Cycle"], errors="coerce")
-    df["xray_rise_min"] = pd.to_numeric(df["xray_rise_min"], errors="coerce")
-    df["flare_to_spe_h"] = pd.to_numeric(df["flare_to_spe_h"], errors="coerce")
+    df["Cycle"]        = pd.to_numeric(df["Cycle"],        errors="coerce")
+    df["xray_rise_min"]= pd.to_numeric(df["xray_rise_min"],errors="coerce")
+    df["flare_to_spe_h"]= pd.to_numeric(df["flare_to_spe_h"], errors="coerce")
+    df["jmax"]         = pd.to_numeric(df["jmax"],         errors="coerce")
 
     print(f"Всего строк в листе: {len(df)}")
     return df
@@ -68,14 +70,17 @@ def load_data() -> pd.DataFrame:
 # График 1 — Scatter: длительность нарастания рентгена vs задержка вспышка→СПС
 # ---------------------------------------------------------------------------
 def plot_scatter(df: pd.DataFrame, save_path: str):
-    sub = df.dropna(subset=["xray_rise_min", "flare_to_spe_h"])
-    # Убираем события, где хотя бы одно значение < 0, выброс 2005-07-25 (~297 ч)
-    # и выброс 2012-07-17 M1.7 (312 мин нарастания, LDE)
+    sub = df.dropna(subset=["xray_rise_min", "flare_to_spe_h", "jmax"])
+    # Фильтры:
+    #   1) Jmax >= 10 pfu
+    #   2) Длительность нарастания рентгена < 2 ч (< 120 мин)
+    #   3) Задержка вспышка → СПС <= 10 ч
     sub = sub[
+        (sub["jmax"] >= 10) &
         (sub["xray_rise_min"] > 0) &
-        (sub["xray_rise_min"] <= 240) &
+        (sub["xray_rise_min"] < 120) &
         (sub["flare_to_spe_h"] > 0) &
-        (sub["flare_to_spe_h"] <= 100)
+        (sub["flare_to_spe_h"] <= 10)
     ].copy()
 
     x = sub["xray_rise_min"].values / 60  # длительность нарастания рентгена, ч
@@ -121,12 +126,13 @@ def plot_scatter(df: pd.DataFrame, save_path: str):
 # График 1b — Scatter крупным планом: первые 10 часов
 # ---------------------------------------------------------------------------
 def plot_scatter_zoom(df: pd.DataFrame, save_path: str, zoom_h: float = 10.0):
-    sub = df.dropna(subset=["xray_rise_min", "flare_to_spe_h"])
+    sub = df.dropna(subset=["xray_rise_min", "flare_to_spe_h", "jmax"])
     sub = sub[
+        (sub["jmax"] >= 10) &
         (sub["xray_rise_min"] > 0) &
-        (sub["xray_rise_min"] <= 240) &
+        (sub["xray_rise_min"] < 120) &
         (sub["flare_to_spe_h"] > 0) &
-        (sub["flare_to_spe_h"] <= 100)
+        (sub["flare_to_spe_h"] <= 10)
     ].copy()
 
     x = sub["xray_rise_min"].values / 60
@@ -231,6 +237,72 @@ def plot_histogram(df: pd.DataFrame, save_path: str):
 
 
 # ---------------------------------------------------------------------------
+# График 3 — Гистограмма T_delta (фаза нарастания потока протонов)
+# ---------------------------------------------------------------------------
+TDELTA_MAX_H = 40.0   # события с T_delta > 40 ч обрезаются
+TDELTA_BIN_H = 0.5    # шаг бина — 30 мин в часах
+
+def plot_tdelta_histogram(save_path: str):
+    df_cat = pd.read_excel(DATA_PATH, sheet_name=SHEET_NAME)
+    tdelta = pd.to_numeric(df_cat["Фаза нарастания (часы)"], errors="coerce")
+    jmax   = pd.to_numeric(df_cat["Максимальная интенсивность"], errors="coerce")
+
+    mask   = tdelta.notna() & (jmax >= 10) & (tdelta <= TDELTA_MAX_H)
+    values = tdelta[mask].values
+
+    bins = np.arange(0, TDELTA_MAX_H + TDELTA_BIN_H, TDELTA_BIN_H)
+
+    fig, ax = plt.subplots(figsize=(11, 6))
+
+    counts, edges, patches = ax.hist(
+        values, bins=bins,
+        color="#2196F3", edgecolor="white", linewidth=0.6,
+        alpha=0.85,
+    )
+
+    for count, patch in zip(counts, patches):
+        if count > 0:
+            ax.text(
+                patch.get_x() + patch.get_width() / 2,
+                count + 0.15,
+                str(int(count)),
+                ha="center", va="bottom", fontsize=8,
+            )
+
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(2))
+    ax.xaxis.set_minor_locator(ticker.MultipleLocator(TDELTA_BIN_H))
+
+    ax.set_xlim(0, TDELTA_MAX_H)
+    ax.set_xlabel("Длительность фазы нарастания потока протонов, T_delta (ч)", fontsize=11)
+    ax.set_ylabel("Количество СПС", fontsize=11)
+    ax.set_title(
+        f"Распределение СПС по длительности фазы нарастания\n"
+        f"(шаг 30 мин, Jmax ≥ 10 pfu, T_delta ≤ {TDELTA_MAX_H:.0f} ч)",
+        fontsize=12,
+    )
+    ax.grid(True, axis="y", linestyle=":", alpha=0.5)
+
+    median_val = np.median(values)
+    mean_val   = np.mean(values)
+    ax.axvline(median_val, color="crimson",    linestyle="--", linewidth=1.8,
+               label=f"Медиана = {median_val:.1f} ч")
+    ax.axvline(mean_val,   color="darkorange", linestyle="-.", linewidth=1.8,
+               label=f"Среднее = {mean_val:.1f} ч")
+    ax.legend(fontsize=9)
+
+    ax.text(
+        0.98, 0.97, f"N = {len(values)}",
+        transform=ax.transAxes, ha="right", va="top",
+        fontsize=9, color="gray",
+    )
+
+    fig.tight_layout()
+    fig.savefig(save_path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Сохранён: {save_path}")
+
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 def main():
@@ -249,6 +321,9 @@ def main():
     plot_histogram(
         df,
         os.path.join(OUTPUT_DIR, "spe_rise_duration_histogram.png"),
+    )
+    plot_tdelta_histogram(
+        os.path.join(OUTPUT_DIR, "t_delta_spe_histogram.png"),
     )
 
     print("\nГотово. Графики сохранены в папку:", OUTPUT_DIR)

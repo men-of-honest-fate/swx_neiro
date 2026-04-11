@@ -110,7 +110,7 @@ def make_clf_models():
     return {
         "LogReg":     LogisticRegression(
                           max_iter=1000, random_state=42,
-                          class_weight="balanced", multi_class="multinomial",
+                          class_weight="balanced",
                           solver="lbfgs"),
         "Forest":     RandomForestClassifier(
                           n_estimators=200, random_state=42,

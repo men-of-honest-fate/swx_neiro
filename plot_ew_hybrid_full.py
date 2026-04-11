@@ -59,8 +59,9 @@ REG_MODELS = {
     "Linear":   LinearRegression(),
     "Forest":   RandomForestRegressor(n_estimators=200, random_state=42),
     "Boosting": GradientBoostingRegressor(n_estimators=200, random_state=42),
+    "SVR":      SVR(kernel="rbf", C=10.0, epsilon=0.1),
 }
-NO_WEIGHT_MODELS = set()
+NO_WEIGHT_MODELS = {"SVR"}
 
 MODEL_COLORS = {
     "Linear":   "#1f77b4",
@@ -104,7 +105,14 @@ def load_splits():
                       sheet_name="Флюэс GOES")
     )
     cycle  = pd.to_numeric(df[COL_CYCLE], errors="coerce")
-    full   = df[df["Jmax"].fillna(0) >= 10].copy()
+    tdelta    = pd.to_numeric(df["T_delta"],       errors="coerce")
+    goes_rise = pd.to_numeric(df["goes_rise_min"], errors="coerce")
+    mask = (
+        (df["Jmax"].fillna(0) >= 10) &
+        (tdelta.fillna(0) <= 40) &
+        (goes_rise.fillna(0) <= 120)
+    )
+    full   = df[mask].copy()
     tr_all = full[cycle.isin([23, 24])].copy()
     te_all = full[cycle.isin([25])].copy()
     splits = {
@@ -608,6 +616,218 @@ def scatter_best_hybrid(splits):
     print(f"  Saved: {out.name}")
 
 
+# ── F) Общие (pooled) scatter и importance: West+East вместе ──────────────────
+
+def _combined_weights(train_west, train_east, X_tr_s_all, X_te_s):
+    """
+    Гибридные веса для объединённой выборки:
+      West-события → density weights (KDE теста / KDE west-трейна)
+      East-события → target weights (∝ log10(Jmax)^α)
+    Возвращает вектор весов len(X_tr_s_all).
+    """
+    n_west = len(train_west)
+    n_east = len(train_east)
+    n_all  = n_west + n_east
+
+    w = np.ones(n_all)
+
+    # West-часть: density
+    if n_west > 0:
+        w_west = _density_weights(X_tr_s_all[:n_west], X_te_s)
+        w[:n_west] = w_west
+
+    # East-часть: target
+    if n_east > 0:
+        jmax_east = pd.to_numeric(
+            train_east["Jmax"], errors="coerce"
+        ).fillna(10.0).to_numpy()
+        w_east = _target_weights(jmax_east)
+        w[n_west:] = w_east
+
+    # Нормируем: среднее = 1
+    w = w / w.mean()
+    return w
+
+
+def scatter_combined(splits, tgt_col, log_tgt, out_prefix):
+    """Scatter 2×2 на объединённой West+East выборке."""
+    ax_unit  = "$\\log_{10}$ J$_{max}$" if log_tgt else "$T_{\\Delta}$ (ч)"
+
+    train_w, test_w = splits["West"]
+    train_e, test_e = splits["East"]
+    train_all = pd.concat([train_w, train_e], ignore_index=True)
+    test_all  = pd.concat([test_w,  test_e],  ignore_index=True)
+
+    for fs_label, fs_cols in FEATURE_SETS:
+        X_tr, y_tr, jmax_tr = prep_xy(train_all, fs_cols, tgt_col, log_tgt)
+        # West/East части для весов — по исходным размерам до prep_xy
+        # Используем prep_xy отдельно, чтобы знать размеры
+        X_trw, y_trw, _ = prep_xy(train_w, fs_cols, tgt_col, log_tgt)
+        X_tre, y_tre, _ = prep_xy(train_e, fs_cols, tgt_col, log_tgt)
+
+        X_te, y_te = prep_xy_test(test_all, fs_cols, tgt_col, log_tgt)
+        if len(X_te) < 5:
+            continue
+        if log_tgt:
+            mask_te = y_te < np.log10(30000)
+            X_te, y_te = X_te[mask_te], y_te[mask_te]
+        if len(X_te) < 5:
+            continue
+
+        sx = StandardScaler().fit(X_tr)
+        sy = StandardScaler().fit(y_tr.reshape(-1, 1))
+        X_tr_s = sx.transform(X_tr)
+        X_te_s = sx.transform(X_te)
+        y_tr_s = sy.transform(y_tr.reshape(-1, 1)).ravel()
+
+        # Собираем раздельно обработанные West/East для весов
+        tr_west_for_w = train_w.copy()
+        tr_east_for_w = train_e.copy()
+        w = _combined_weights(tr_west_for_w, tr_east_for_w, X_tr_s, X_te_s)
+        # Выравниваем длину (prep_xy мог отбросить строки с NaN)
+        w = w[:len(X_tr_s)]
+
+        try:
+            all_preds = []
+            for mname, mdl in REG_MODELS.items():
+                m      = _fit(mdl, X_tr_s, y_tr_s, w)
+                y_pred = sy.inverse_transform(m.predict(X_te_s).reshape(-1, 1)).ravel()
+                all_preds.append(y_pred)
+        except Exception as e:
+            print(f"  [ERROR scatter_combined/{fs_label}] {e}")
+            continue
+
+        vmin = min(y_te.min(), min(p.min() for p in all_preds))
+        vmax = max(y_te.max(), max(p.max() for p in all_preds))
+        margin = (vmax - vmin) * 0.08
+        lo, hi = vmin - margin, vmax + margin
+
+        fig, axes = plt.subplots(2, 2, figsize=(9, 8), sharex=True, sharey=True)
+        fig.suptitle(
+            f"[All / Hybrid] «{fs_label}» · тест SC25 (n={len(y_te)})",
+            fontsize=10, y=1.01, fontweight="bold"
+        )
+
+        for ax, (mname, _), y_pred in zip(axes.flat, REG_MODELS.items(), all_preds):
+            ax.scatter(y_te, y_pred, alpha=0.75, s=45,
+                       color=MODEL_COLORS[mname], edgecolors="white",
+                       linewidth=0.3, zorder=3)
+            ax.plot([lo, hi], [lo, hi], "k--", lw=1.0, zorder=2)
+            ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
+            ax.set_aspect("equal", adjustable="box")
+            rmse = np.sqrt(np.mean((y_pred - y_te) ** 2))
+            lbl  = f"RMSLE={rmse:.3f}" if log_tgt else f"RMSE={rmse:.1f}h"
+            ax.set_title(f"{mname}  [{lbl}]", fontsize=9,
+                         color=MODEL_COLORS[mname], fontweight="bold", pad=4)
+            ax.grid(alpha=0.2); ax.spines[["top", "right"]].set_visible(False)
+
+        for ax in axes[1]:
+            ax.set_xlabel(f"Факт ({ax_unit})", fontsize=8.5)
+        for ax in axes[:, 0]:
+            ax.set_ylabel(f"Прогноз ({ax_unit})", fontsize=8.5)
+
+        plt.tight_layout()
+        safe = fs_label.replace(" ", "_").replace("+", "p").replace("/", "-")
+        out  = PLOTS_DIR / f"{out_prefix}_All_{safe}.png"
+        plt.savefig(out, dpi=150, bbox_inches="tight")
+        plt.close()
+        print(f"  Saved: {out.name}")
+
+
+def importance_combined(splits, tgt_col, log_tgt, out_prefix):
+    """Permutation importance на объединённой West+East выборке."""
+    model_names = list(REG_MODELS.keys())
+    n_models    = len(model_names)
+    bar_h, group_gap = 0.18, 0.35
+    tgt_label   = "J$_{max}$" if log_tgt else "T$_{\\Delta}$"
+
+    train_w, test_w = splits["West"]
+    train_e, test_e = splits["East"]
+    train_all = pd.concat([train_w, train_e], ignore_index=True)
+    test_all  = pd.concat([test_w,  test_e],  ignore_index=True)
+
+    for fs_label, fs_cols in FEATURE_SETS:
+        X_tr, y_tr, _ = prep_xy(train_all, fs_cols, tgt_col, log_tgt)
+        X_te, y_te    = prep_xy_test(test_all, fs_cols, tgt_col, log_tgt)
+        if len(X_te) < 5:
+            continue
+
+        sx = StandardScaler().fit(X_tr)
+        sy = StandardScaler().fit(y_tr.reshape(-1, 1))
+        X_tr_s = sx.transform(X_tr)
+        X_te_s = sx.transform(X_te)
+        y_tr_s = sy.transform(y_tr.reshape(-1, 1)).ravel()
+
+        w = _combined_weights(train_w, train_e, X_tr_s, X_te_s)
+        w = w[:len(X_tr_s)]
+
+        ordered_cols   = [f for f in FEAT_FIXED_ORDER if f in fs_cols]
+        ordered_idxs   = [fs_cols.index(f) for f in ordered_cols]
+        ordered_labels = [FEAT_LABELS.get(f, f) for f in ordered_cols]
+        n_feats     = len(ordered_cols)
+        group_size  = n_models * bar_h
+        grp_centers = np.arange(n_feats) * (group_size + group_gap)
+
+        imp_matrix = {}
+        for mname, mdl in REG_MODELS.items():
+            try:
+                m  = _fit(mdl, X_tr_s, y_tr_s, w)
+                pi = permutation_importance(
+                    m, X_te_s, y_te, n_repeats=30, random_state=42,
+                    scoring="neg_mean_squared_error"
+                )
+                imp_pos = np.maximum(pi.importances_mean, 0)
+                total   = imp_pos.sum()
+                imp_col = (imp_pos / total * 100) if total > 0 \
+                    else np.abs(pi.importances_mean) / \
+                         (np.abs(pi.importances_mean).sum() + 1e-12) * 100
+                imp_matrix[mname] = np.array([imp_col[i] for i in ordered_idxs])
+            except Exception:
+                imp_matrix[mname] = np.zeros(n_feats)
+
+        fig_h = max(2.4, n_feats * (group_size + group_gap) + 0.6)
+        fig, ax = plt.subplots(figsize=(6.5, fig_h))
+
+        x_max = 0.0
+        for mi, mname in enumerate(model_names):
+            vals = imp_matrix[mname]
+            ypos = grp_centers + (mi - (n_models - 1) / 2) * bar_h
+            ax.barh(ypos, vals, height=bar_h * 0.88,
+                    color=MODEL_COLORS[mname], alpha=0.90, label=mname, zorder=3)
+            x_max = max(x_max, vals.max())
+            for yp, v in zip(ypos, vals):
+                if v >= 1.0:
+                    ax.text(v + 0.8, yp, f"{v:.0f}%",
+                            va="center", ha="left", fontsize=7.5, color="#333")
+
+        ax.set_yticks(grp_centers)
+        ax.set_yticklabels(ordered_labels, fontsize=9.5)
+        ax.set_xlabel("Вклад (%)", fontsize=9)
+        ax.set_xlim(0, max(x_max * 1.22, 12))
+        ax.set_ylim(grp_centers[0] - group_size * 0.8,
+                    grp_centers[-1] + group_size * 0.8 if n_feats > 1 else group_size * 0.8)
+        ax.legend(
+            handles=[plt.Rectangle((0, 0), 1, 1, color=MODEL_COLORS[m], alpha=0.9)
+                     for m in model_names],
+            labels=model_names, loc="lower right", fontsize=8.5,
+            framealpha=0.85, edgecolor="#ccc", handlelength=1.0, handleheight=0.9
+        )
+        ax.set_title(
+            f"[All / Hybrid] «{fs_label}»\n"
+            f"{tgt_label} · permutation importance · тест SC25",
+            fontsize=9.5, pad=8
+        )
+        ax.grid(axis="x", alpha=0.22, zorder=0)
+        ax.spines[["top", "right"]].set_visible(False)
+
+        plt.tight_layout()
+        safe = fs_label.replace(" ", "_").replace("+", "p").replace("/", "-")
+        out  = PLOTS_DIR / f"{out_prefix}_All_{safe}.png"
+        plt.savefig(out, dpi=150, bbox_inches="tight")
+        plt.close()
+        print(f"  Saved: {out.name}")
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -641,6 +861,18 @@ def main():
         print("  Confusion matrix T_delta...")
         confusion_tdelta(train, test, group,
                          feat_cols=BEST_TD_FS, fs_label="Базовая")
+
+    print("\n── Scatter All (West+East pooled) Jmax ──")
+    scatter_combined(splits, "Jmax",    log_tgt=True,  out_prefix="scatter4_jmax")
+
+    print("\n── Scatter All (West+East pooled) T_delta ──")
+    scatter_combined(splits, "T_delta", log_tgt=False, out_prefix="scatter4_tdelta")
+
+    print("\n── Importance All (West+East pooled) Jmax ──")
+    importance_combined(splits, "Jmax",    log_tgt=True,  out_prefix="imp_jmax")
+
+    print("\n── Importance All (West+East pooled) T_delta ──")
+    importance_combined(splits, "T_delta", log_tgt=False, out_prefix="imp_tdelta")
 
     print("\n── Compact reg: Hybrid vs Baseline ──")
     compact_reg_hybrid(splits)

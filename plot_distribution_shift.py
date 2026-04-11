@@ -65,10 +65,16 @@ def load():
         pd.read_excel(ROOT / "data" / "ОБЪЕДИНЕННЫЙ КАТАЛОГ СПС 23-25.xlsx",
                       sheet_name="Флюэс GOES")
     )
-    cycle = pd.to_numeric(df[COL_CYCLE], errors="coerce")
-    mask  = df["Jmax"].fillna(0) >= 10
-    train = df[cycle.isin([23, 24]) & mask].copy()
-    test  = df[cycle.isin([25])     & mask].copy()
+    cycle      = pd.to_numeric(df[COL_CYCLE], errors="coerce")
+    tdelta     = pd.to_numeric(df["T_delta"],       errors="coerce")
+    goes_rise  = pd.to_numeric(df["goes_rise_min"], errors="coerce")
+    mask = (
+        (df["Jmax"].fillna(0) >= 10) &
+        (tdelta.fillna(0) <= 40) &
+        (goes_rise.fillna(0) <= 120)
+    )
+    train  = df[cycle.isin([23, 24]) & mask].copy()
+    test   = df[cycle.isin([25])     & mask].copy()
     print(f"Train SC23+SC24: {len(train)}  |  Test SC25: {len(test)}")
     return train, test
 
@@ -105,16 +111,18 @@ def draw_panel(ax, vals_raw, color, label, xlabel, log_scale, xlim_override, bin
         n_bins = min(20, max(8, int(len(vals) / 4)))
         bins_ref = np.linspace(vmin - span * 0.03, vmax + span * 0.03, n_bins + 1)
 
-    ax.hist(vals, bins=bins_ref, density=True,
+    ax.hist(vals, bins=bins_ref,
             color=color, alpha=ALPHA_BAR,
             edgecolor="white", linewidth=0.5)
 
-    # KDE
+    # KDE (масштабирована под количество событий)
     x_lo, x_hi = bins_ref[0], bins_ref[-1]
     x_grid = np.linspace(x_lo, x_hi, 300)
     if len(vals) >= 5 and vals.std() > 0:
+        bin_width = bins_ref[1] - bins_ref[0]
         kde = gaussian_kde(vals, bw_method="scott")
-        ax.plot(x_grid, kde(x_grid), color=color, lw=2.2, alpha=ALPHA_KDE)
+        ax.plot(x_grid, kde(x_grid) * len(vals) * bin_width,
+                color=color, lw=2.2, alpha=ALPHA_KDE)
 
     # Медиана
     med = np.median(vals)
@@ -123,7 +131,7 @@ def draw_panel(ax, vals_raw, color, label, xlabel, log_scale, xlim_override, bin
 
     ax.set_xlim(x_lo, x_hi)
     ax.set_xlabel(xlabel, fontsize=8.5)
-    ax.set_ylabel("Плотность", fontsize=8)
+    ax.set_ylabel("Количество событий", fontsize=8)
     ax.legend(fontsize=7.5, framealpha=0.7)
     ax.grid(axis="y", alpha=0.25)
     ax.spines[["top", "right"]].set_visible(False)
