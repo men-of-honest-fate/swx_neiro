@@ -90,15 +90,20 @@ def scatter_regression(train, test, feat_cols, tgt_col, log_tgt,
 
     rho, _ = spearmanr(y_te, y_pred)
     r2 = 1 - np.sum((y_te - y_pred)**2) / np.sum((y_te - np.mean(y_te))**2)
+    cc = (float(np.corrcoef(y_te, y_pred)[0, 1])
+          if len(y_te) >= 2 and np.std(y_pred) > 0 and np.std(y_te) > 0
+          else np.nan)
 
     if log_tgt:
         rmse_metric = np.sqrt(np.mean((y_pred - y_te)**2))
-        metric_label = f"RMSLE = {rmse_metric:.3f}\n$R^2_{{\\log}}$ = {r2:.2f},  $\\rho_s$ = {rho:.2f}"
+        metric_label = (f"RMSLE = {rmse_metric:.3f}\n"
+                        f"$R^2_{{\\log}}$ = {r2:.2f},  CC = {cc:.2f},  $\\rho_s$ = {rho:.2f}")
         ax_label = "$\\log_{{10}}$ J_max"
         title = f"J_max регрессия — {fs_label} + Linear\n(тест SC25, n={len(y_te)})"
     else:
         rmse_metric = np.sqrt(np.mean((y_pred - y_te)**2))
-        metric_label = f"RMSE = {rmse_metric:.1f} ч\n$R^2$ = {r2:.2f},  $\\rho_s$ = {rho:.2f}"
+        metric_label = (f"RMSE = {rmse_metric:.1f} ч\n"
+                        f"$R^2$ = {r2:.2f},  CC = {cc:.2f},  $\\rho_s$ = {rho:.2f}")
         ax_label = "T_delta (ч)"
         title = f"T_delta регрессия — {fs_label} + Linear\n(тест SC25, n={len(y_te)})"
 

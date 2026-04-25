@@ -37,7 +37,13 @@ from sklearn.svm import SVR
 from sklearn.preprocessing import StandardScaler
 from sklearn.inspection import permutation_importance
 from sklearn.base import clone
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, r2_score
+
+
+def _cc(y_true, y_pred):
+    if len(y_true) < 2 or np.std(y_pred) == 0 or np.std(y_true) == 0:
+        return np.nan
+    return float(np.corrcoef(y_true, y_pred)[0, 1])
 
 from spe_utils import build_features, COL_CYCLE
 from pipelines.tdelta_clf.utils import tdelta_to_class
@@ -80,6 +86,8 @@ FEAT_LABELS = {
     "log_goes_peak_flux": "log(GOES пик)",
     "log_cme_velocity":   "log(Скорость КВМ)",
     "log_fluence":        "log(Флюэнс)",
+    "cme_pa_deg":         "Поз. угол КВМ",
+    "cme_width_deg":      "Угол раствора КВМ",
 }
 
 # Фиксированный порядок признаков для графиков важности (снизу вверх)
@@ -89,6 +97,8 @@ FEAT_FIXED_ORDER = [
     "log_goes_peak_flux",
     "log_fluence",
     "log_cme_velocity",
+    "cme_pa_deg",
+    "cme_width_deg",
 ]
 
 CLF_CLASS_LABELS_TD = ["Быстрые\n(<8 ч)", "Умеренные\n(8–20 ч)", "Медленные\n(≥20 ч)"]
@@ -247,8 +257,11 @@ def scatter_all_models(train, test, group, tgt_col, log_tgt, out_prefix):
             ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
             ax.set_aspect("equal", adjustable="box")
             rmse = np.sqrt(np.mean((y_pred - y_te) ** 2))
-            lbl  = f"RMSLE={rmse:.3f}" if log_tgt else f"RMSE={rmse:.1f}h"
-            ax.set_title(f"{mname}  [{lbl}]", fontsize=9,
+            r2   = r2_score(y_te, y_pred) if len(y_te) >= 2 else np.nan
+            cc   = _cc(y_te, y_pred)
+            base = f"RMSLE={rmse:.3f}" if log_tgt else f"RMSE={rmse:.1f}h"
+            lbl  = f"{base}  R²={r2:.2f}  CC={cc:.2f}"
+            ax.set_title(f"{mname}  [{lbl}]", fontsize=8.5,
                          color=MODEL_COLORS[mname], fontweight="bold", pad=4)
             ax.grid(alpha=0.2); ax.spines[["top", "right"]].set_visible(False)
 
@@ -278,7 +291,7 @@ def importance_all_models(train, test, group, tgt_col, log_tgt, out_prefix):
         X_tr, y_tr, jmax_tr = prep_xy(train, fs_cols, tgt_col, log_tgt)
         X_te, y_te = prep_xy_test(test, fs_cols, tgt_col, log_tgt)
 
-        if len(X_te) < 5:
+        if len(X_te) < 3:
             continue
 
         sx = StandardScaler().fit(X_tr)
@@ -548,10 +561,11 @@ def scatter_best_hybrid(splits):
     2 строки (Jmax / T_delta) × 2 столбца (West / East).
     Лучшие конфигурации: Jmax → «Флюэс вместо пика», T_delta → «Базовая», Linear.
     """
+    fs_map = {label: cols for label, cols in FEATURE_SETS}
     configs = [
-        ("Jmax",    True,  ["helio_lon", "log_fluence", "log_cme_velocity"],
+        ("Jmax",    True,  fs_map.get("Флюэс вместо пика", FEATURE_SETS[0][1]),
          "Флюэс вместо пика", "$\\log_{10}$ J$_{max}$", "RMSLE"),
-        ("T_delta", False, ["helio_lon", "log_goes_peak_flux", "log_cme_velocity"],
+        ("T_delta", False, fs_map.get("Базовая", FEATURE_SETS[0][1]),
          "Базовая", "$T_{\\Delta}$ (ч)", "RMSE"),
     ]
 
@@ -602,7 +616,10 @@ def scatter_best_hybrid(splits):
             ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
             ax.set_aspect("equal", adjustable="box")
             ax.grid(alpha=0.2); ax.spines[["top", "right"]].set_visible(False)
-            ax.text(0.04, 0.96, f"{metric_name}={rmse:.3f}\nn={len(y_te)}",
+            r2 = r2_score(y_te, y_pred) if len(y_te) >= 2 else np.nan
+            cc = _cc(y_te, y_pred)
+            ax.text(0.04, 0.96,
+                    f"{metric_name}={rmse:.3f}\nR²={r2:.2f}  CC={cc:.2f}\nn={len(y_te)}",
                     transform=ax.transAxes, va="top", ha="left", fontsize=8.5,
                     bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8))
             if row == 1:
@@ -716,8 +733,11 @@ def scatter_combined(splits, tgt_col, log_tgt, out_prefix):
             ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
             ax.set_aspect("equal", adjustable="box")
             rmse = np.sqrt(np.mean((y_pred - y_te) ** 2))
-            lbl  = f"RMSLE={rmse:.3f}" if log_tgt else f"RMSE={rmse:.1f}h"
-            ax.set_title(f"{mname}  [{lbl}]", fontsize=9,
+            r2   = r2_score(y_te, y_pred) if len(y_te) >= 2 else np.nan
+            cc   = _cc(y_te, y_pred)
+            base = f"RMSLE={rmse:.3f}" if log_tgt else f"RMSE={rmse:.1f}h"
+            lbl  = f"{base}  R²={r2:.2f}  CC={cc:.2f}"
+            ax.set_title(f"{mname}  [{lbl}]", fontsize=8.5,
                          color=MODEL_COLORS[mname], fontweight="bold", pad=4)
             ax.grid(alpha=0.2); ax.spines[["top", "right"]].set_visible(False)
 
@@ -837,7 +857,8 @@ def main():
     print("Загрузка данных...")
     splits = load_splits()
 
-    BEST_TD_FS = ["helio_lon", "log_goes_peak_flux", "log_cme_velocity"]
+    _fs_map = {label: cols for label, cols in FEATURE_SETS}
+    BEST_TD_FS = _fs_map.get("Базовая", FEATURE_SETS[0][1])
 
     for group, (train, test) in splits.items():
         print(f"\n══ {group} ({GROUP_APPROACH[group]}) ══")

@@ -35,7 +35,13 @@ from sklearn.svm import SVR
 from sklearn.preprocessing import StandardScaler
 from sklearn.inspection import permutation_importance
 from sklearn.base import clone
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, r2_score
+
+
+def _cc(y_true, y_pred):
+    if len(y_true) < 2 or np.std(y_pred) == 0 or np.std(y_true) == 0:
+        return np.nan
+    return float(np.corrcoef(y_true, y_pred)[0, 1])
 
 from spe_utils import build_features, COL_CYCLE
 from pipelines.tdelta_clf.utils import tdelta_to_class
@@ -186,8 +192,11 @@ def scatter_all_models(train, test, group, tgt_col, log_tgt, out_prefix):
             ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
             ax.set_aspect("equal", adjustable="box")
             rmse = np.sqrt(np.mean((y_pred - y_te) ** 2))
-            metric_str = f"RMSLE={rmse:.3f}" if log_tgt else f"RMSE={rmse:.1f}h"
-            ax.set_title(f"{mname}  [{metric_str}]", fontsize=9,
+            r2   = r2_score(y_te, y_pred) if len(y_te) >= 2 else np.nan
+            cc   = _cc(y_te, y_pred)
+            base = f"RMSLE={rmse:.3f}" if log_tgt else f"RMSE={rmse:.1f}h"
+            metric_str = f"{base}  R²={r2:.2f}  CC={cc:.2f}"
+            ax.set_title(f"{mname}  [{metric_str}]", fontsize=8.5,
                          color=MODEL_COLORS[mname], fontweight="bold", pad=4)
             ax.grid(alpha=0.2, zorder=0)
             ax.spines[["top", "right"]].set_visible(False)

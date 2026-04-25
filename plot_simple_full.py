@@ -11,6 +11,13 @@
 import sys
 import warnings
 import numpy as np
+from sklearn.metrics import r2_score
+
+
+def _cc(y_true, y_pred):
+    if len(y_true) < 2 or np.std(y_pred) == 0 or np.std(y_true) == 0:
+        return np.nan
+    return float(np.corrcoef(y_true, y_pred)[0, 1])
 import pandas as pd
 from pathlib import Path
 from scipy.stats import spearmanr
@@ -151,6 +158,11 @@ def scatter_all_models(train, test, tgt_col, log_tgt, out_prefix):
             ax.text(0.97, 0.05, mname, transform=ax.transAxes,
                     ha="right", va="bottom", fontsize=10,
                     fontweight="bold", color=MODEL_COLORS[mname])
+            r2 = r2_score(y_te, y_pred) if len(y_te) >= 2 else np.nan
+            cc = _cc(y_te, y_pred)
+            ax.set_title(f"{metric_f(y_te, y_pred)}  R²={r2:.2f}  CC={cc:.2f}",
+                         fontsize=8.5, color=MODEL_COLORS[mname],
+                         fontweight="bold", pad=4)
             ax.grid(alpha=0.25)
 
         fig.text(0.5, 0.02, f"Факт ({ax_unit})", ha="center", fontsize=10)
